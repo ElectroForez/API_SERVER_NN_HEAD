@@ -7,7 +7,7 @@ from datetime import datetime
 from moviepy.editor import AudioFileClip
 
 
-def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr):  # Function to improve the video
+def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_upscale):  # Function to improve the video
     if not os.path.exists(videofile):
         print(f'File {videofile} not found')
         return -1
@@ -15,22 +15,22 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr):  # Fun
         print(f'{videofile} it is a directory')
         return -1
     filename = videofile.split('/')[-1]  # take filename
-    if upd_videofile.split('/')[-1].count('.') == 0:  # check path it's file or directory
+    if upd_videofile.split('/')[-1].count('.') == 0:  # check path that it's directory
         if not os.path.exists(upd_videofile):
             os.mkdir(upd_videofile)
         directory = upd_videofile
-        upd_videofile += '/untitled.avi'  # it's path for a future file
+        upd_videofile += 'untitled.avi'  # it's path for a future file
     else:
         directory = videofile.split(filename)[0]
     if not directory.endswith('/'):
         directory += '/'
-    fragments_path = filename.replace('.', '-') + '_fragments'
-    upd_fragments_path = filename.replace('.', '-') + '_updated_fragments'
+    fragments_path = filename.replace('.', '-') + '_fragments/'
+    upd_fragments_path = 'Updated_' + fragments_path
     upd_videofile_WOA = 'UWOA_' + filename  # UWOA - Updated without audio
 
     if directory:
         fragments_path = directory + fragments_path
-        upd_fragments_path = directory  + upd_fragments_path
+        upd_fragments_path = directory + upd_fragments_path
         upd_videofile_WOA = directory + upd_videofile_WOA
 
     for path in [fragments_path, upd_fragments_path]:
@@ -42,9 +42,8 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr):  # Fun
 
     subprocess.run(['cp', fragments_path + '/info.txt', fragments_path + '/audio.mp3', upd_fragments_path])
 
-    finish_returncode = use_realsr(fragments_path, upd_fragments_path, *args_realsr)
-
-    if finish_returncode != 0:
+    return_code = func_upscale(fragments_path, upd_fragments_path, *args_realsr)
+    if return_code != 0:
         print('Error on upscaling frames')
         return -1
 
@@ -63,6 +62,7 @@ def use_realsr(input_path, output_path, *args_realsr, realsr_path='./realsr-ncnn
     finish = subprocess.run([realsr_path, '-i', input_path, '-o', output_path, *args_realsr])
     t2 = datetime.now()
     print('time cost realsr =', t2 - t1)
+
     return finish.returncode
 
 
@@ -171,4 +171,4 @@ def add_audio(videofile, audio_path, new_name=None):
 
 
 if __name__ == '__main__':
-    improve_video(*sys.argv[1:])
+    improve_video(*sys.argv[1:], func_upscale=use_realsr)
