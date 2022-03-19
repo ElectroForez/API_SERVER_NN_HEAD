@@ -24,6 +24,7 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
         directory = videofile.split(filename)[0]
     if not directory.endswith('/'):
         directory += '/'
+
     fragments_path = filename.replace('.', '-') + '_fragments/'
     upd_fragments_path = 'Updated_' + fragments_path
     upd_videofile_WOA = 'UWOA_' + filename  # UWOA - Updated without audio
@@ -40,7 +41,7 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
         print('Error on function video to fragments')
         return -1
 
-    subprocess.run(['cp', fragments_path + '/info.txt', fragments_path + '/audio.mp3', upd_fragments_path])
+    subprocess.run(['cp', fragments_path + 'info.txt', fragments_path + 'audio.mp3', upd_fragments_path])
 
     return_code = func_upscale(fragments_path, upd_fragments_path, *args_realsr)
     if return_code != 0:
@@ -50,10 +51,10 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
     if glue_frames(upd_fragments_path, upd_videofile_WOA) != 0:
         print('Error on glue frames')
         return -1
-    if add_audio(upd_videofile_WOA, fragments_path + '/audio.mp3', directory + upd_videofile) != 0:
+
+    if add_audio(upd_videofile_WOA, fragments_path + 'audio.mp3', directory + upd_videofile) != 0:
         print('Error on adding audio')
         return -1
-
     return 0
 
 
@@ -66,30 +67,34 @@ def use_realsr(input_path, output_path, *args_realsr, realsr_path='./realsr-ncnn
     return finish.returncode
 
 
-def video_to_fragments(path, output_path=None):
+def video_to_fragments(video_path, output_path=None):
     # check paths
-    if not os.path.exists(path):
-        print(path + " not exists")
-        return
-    elif os.path.isdir(path):
-        print(path + " is not file")
-        return
+    if output_path.endswith('/'):
+        output_path = output_path[:-1]
+
+    if not os.path.exists(video_path):
+        print(video_path + " not exists")
+        return -1
+    elif os.path.isdir(video_path):
+        print(video_path + " is not file")
+        return -1
     elif output_path and output_path.split('/')[-1].count('.') > 0:
         print(output_path + " is not directory")
-        return
+        return - 1
 
-    filename = path.split('/')[-1]
+    output_path += '/'
+    filename = video_path.split('/')[-1]
 
     if not output_path:
         output_path = filename.replace('.', '-') + "_fragments"
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     if os.listdir(output_path):
-        print('WARNING!!! Path for fragments is not empty. Files with the same name will be overwritten')
+        print(f'WARNING!!! Path for fragments {output_path} is not empty. Files with the same name will be overwritten')
 
     t1 = datetime.now()
     videoCapture = cv2.VideoCapture()
-    videoCapture.open(path)
+    videoCapture.open(video_path)
     fps = videoCapture.get(cv2.CAP_PROP_FPS)
     frames = videoCapture.get(cv2.CAP_PROP_FRAME_COUNT)
     print("fps=", int(fps), "frames=", int(frames))
@@ -106,14 +111,14 @@ def video_to_fragments(path, output_path=None):
     print('time cost  = ', t2 - t1)
 
     # create a txt file with additional info for processing by other programs
-    with open(output_path + '/info.txt', 'w') as infoFile:
+    with open(output_path + 'info.txt', 'w') as infoFile:
         infoFile.write(str(int(fps)) + '\n')  # fps
         infoFile.write(filename + '\n')  # filename
         infoFile.write(str(int(frames)))  # frames
     # catching audio
     try:
-        audioclip = AudioFileClip(path)
-        audioclip.write_audiofile(output_path + '/audio.mp3')
+        audioclip = AudioFileClip(video_path)
+        audioclip.write_audiofile(output_path + 'audio.mp3')
         audioclip.close()
     except:
         print('video without audio')
