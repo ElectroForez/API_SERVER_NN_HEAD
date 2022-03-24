@@ -6,13 +6,13 @@ from DbManager import DbManager
 from Video_nn import *
 import requests
 import traceback
-
+import threading
 
 class ServerHead:
     def __init__(self, video_path, db_path):
-        self.video_path = video_path
-        if not os.path.exists(self.video_path):
-            os.mkdir(self.video_path)
+        # self.video_path = video_path
+        # if not os.path.exists(self.video_path):
+        #     os.mkdir(self.video_path)
         self.DbManager = DbManager(db_path)
 
     def save_self(self, method):
@@ -36,6 +36,7 @@ class ServerHead:
         headers = {
             'X-PASSWORD': PASSWORD
         }
+
         try:
             response = requests.request("POST", url, headers=headers, files=files, params=params)
         except requests.ConnectionError:
@@ -55,7 +56,7 @@ class ServerHead:
             return_code = improve_video(videofile, upd_videofile, *args_realsr,
                                         func_upscale=self.save_self(self.remote_processing))
             if return_code != 0:
-                print('Error')
+                print('Error. End of work')
                 return -1
         except sqlite3.Error as error:
             print("Ошибка при работе с sqlite:", error)
@@ -67,40 +68,34 @@ class ServerHead:
 
     def remote_processing(self, frames_path, upd_frames_path, *args_realsr):
         self.DbManager.add_frames(frames_path)
-        params = {
-            'realsr': ' '.join(args_realsr)
-        }
-
         while True:
             frame_path = self.DbManager.get_waiting_frame()
             if frame_path is None:
                 break
-            if len(self.DbManager.get_avlb_servers()) == 0:
-                print('All servers are down')
-                return -1
             while True:
-                time.sleep(0.5)
-                # self.DbManager.watch_servers()
+                time.sleep(1)
+                self.DbManager.watch_servers()
+                if len(self.DbManager.get_avlb_servers()) == 0:
+                    print('All servers are down')
+                    return -1
+                self.DbManager.check_uploads()
                 server_url = self.DbManager.get_vacant_server()
                 if server_url is not None:
                     break
-            response = self.upload_frame(server_url, frame_path, **params)
-            if response == -1:
-                return -1
-            elif type(response) == str:
-                self.DbManager.add_proc_server(server_url, frame_path, response)
-                print(f'Send {frame_path} to {server_url}')
-            else:
-                print(f'Send {frame_path} to {server_url}')
-                print('Response:', response[0])
-                print('Status code:', response[1])
-                self.DbManager.update_status_serv(server_url)
-
+            output_name = frame_path.split('/')[-1].replace("jpg", "png")
+            params = {
+                'realsr': ' '.join(args_realsr),
+                'output_name': output_name
+            }
+            thread_upload = threading.Thread(target=self.upload_frame, args=(server_url, frame_path), kwargs=params)
+            thread_upload.start()
+            self.DbManager.add_proc_server(server_url, frame_path, output_name)
+            print(f'Send {frame_path} to {server_url}')
         return 0
 
 
 if __name__ == '__main__':
     server_head = ServerHead(VIDEO_PATH, DB_PATH)
     video_dir = VIDEO_PATH + 'barabans/'
-    args_realsr = '-x -s 4'
+    args_realsr = ''
     server_head.start_work(video_dir + 'upbar.mp4', video_dir, *args_realsr.split())
