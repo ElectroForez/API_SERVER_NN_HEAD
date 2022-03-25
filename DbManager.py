@@ -1,5 +1,5 @@
-from DB_CONFIG import *
-from config_head import PASSWORD, SERVERS_PATH
+from config_head import  MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
+from DB_NAMES import *
 import sqlite3
 import os
 import glob
@@ -8,11 +8,13 @@ from datetime import datetime
 
 
 class DbManager:
-    def __init__(self, db_path):
+    def __init__(self, db_path, servers_path, password):
         self.db_path = db_path
         self.check_db()
         self.sqlite_connection = sqlite3.connect(self.db_path)
         self.cursor = self.sqlite_connection.cursor()
+        self.pass_param = {'X-PASSWORD': password}
+        self.servers_path = servers_path
 
     def check_db(self):
         print('Start checking DB')
@@ -39,7 +41,7 @@ class DbManager:
 
     def prepare_db(self):
         self.clear_db()
-        with open(SERVERS_PATH, 'r') as file:
+        with open(self.servers_path, 'r') as file:
             servers = [server.strip() for server in file.readlines()]
         for server in servers:
             self.add_server(server)
@@ -53,7 +55,7 @@ class DbManager:
     def get_status_serv(self, address):
         url = address + r'/check/busy'
         try:
-            response = requests.get(url, headers={'X-PASSWORD': PASSWORD})
+            response = requests.get(url, headers=self.pass_param)
             if response.status_code == 200:
                 is_busy = response.json()['status']
                 if is_busy:
@@ -82,7 +84,7 @@ class DbManager:
         return self.cursor.execute(f'SELECT * FROM {servers_table}')
 
     def update_status(self, table, status, cond_id):  # manual update
-        fields_id = {servers_table: "server_id", frames_table: "frame_id", frames_servers_table: "id"}
+        fields_id = {servers_table: "server_id", frames_table: "frame_id", frames_servers_table: "proc_id"}
         field_id = fields_id[table]
         self.cursor.execute(f'UPDATE {table} '
                             f'SET status="{status}", '
@@ -105,8 +107,27 @@ class DbManager:
                 self.update_status(servers_table, cur_status, server_id)
         self.sqlite_connection.commit()
 
+    def check_stuck(self):
+        time_constraints = {
+            UPLOADING: MAX_UPLOAD_TIME,
+            LAUNCHED: MAX_PROCESSING_TIME,
+            DOWNLOADING: MAX_DOWNLOAD_TIME
+        }
+        query = ""
+        for status, time_constraint in time_constraints.items():
+            query += f'''SELECT proc_id, frame_id, server_id FROM {frames_servers_table} pf
+        WHERE (strftime("%s", 'now') - strftime("%s", pf.upd_status_time)) > {time_constraint} AND status="{status}"
+        UNION
+        '''
+        query = query[0:query.rfind('UNION')]
+        stuck_proc = self.select(query)
+        for proc_id, frame_id, server_id in stuck_proc:
+            self.update_status(servers_table, NOT_AVAILABLE, server_id)
+            self.update_status(frames_table, WAITING, frame_id)
+            self.update_status(frames_servers_table, LOST, proc_id)
+
     def check_uploads(self):
-        query = f"""SELECT pf.id, f.orig_frame_path, s.address FROM {frames_servers_table} pf
+        query = f"""SELECT pf.proc_id, f.orig_frame_path, s.address FROM {frames_servers_table} pf
         JOIN {frames_table} f ON f.frame_id = pf.frame_id
         JOIN {servers_table} s ON s.server_id = pf.server_id
         WHERE pf.status="{UPLOADING}";
@@ -114,7 +135,7 @@ class DbManager:
         for proc_id, frame_path, address in self.select(query):
             address += '/info/order'
             try:
-                response = requests.get(address, headers={'X-PASSWORD': PASSWORD})
+                response = requests.get(address, headers=self.pass_param)
                 if response.status_code == 200:
                     order = response.json()['Files list']
                     for file in order:
@@ -124,6 +145,21 @@ class DbManager:
             except requests.ConnectionError:
                 self.update_status_serv(address)
 
+    # def check_updated(self):
+    #     query = f'''SELECT pf.output_filename, s.address FROM {frames_servers_table} pf
+    #     JOIN servers s ON s.server_id = pf.server_id
+    #     WHERE pf.status = '{LAUNCHED}';
+    #     '''
+    #     launched_frames = self.select(query)
+    #     for output_filename, address in launched_frames:
+    #         url = address + '/content/' + output_filename
+    #         try:
+    #             response = requests.get(url, params=self.pass_param)
+    #             if response.status_code != 404:
+    #                 pass
+    #         except requests.ConnectionError:
+    #             self.update_status_serv(address)
+
     def add_proc_server(self, server_url, frame_path, output_filename):
         server_id = self.get_id_server(server_url)
         frame_id = self.get_id_frame(frame_path)
@@ -131,7 +167,7 @@ class DbManager:
         self.update_status(frames_table, PROCESSING, frame_id)
         self.cursor.execute(
             f'INSERT INTO {frames_servers_table} '
-            f'(frame_id, server_id, output_filename, status) VALUES '
+            f'(frame_id, server_id, output_filename, status) VALUES' 
             f'("{frame_id}", "{server_id}", "{output_filename}", "{UPLOADING}")'
         )
         self.sqlite_connection.commit()
@@ -141,18 +177,6 @@ class DbManager:
 
     def get_id_frame(self, frame_path):
         return self.select(f'SELECT frame_id FROM {frames_table} WHERE orig_frame_path = "{frame_path}"', False)
-
-    def get_id_proc(self, frame, server, its_id=False):
-        if its_id:
-            frame_id = frame
-            server_id = server
-        else:
-            frame_id = self.get_id_frame(frame)
-            server_id = self.get_id_server(server)
-
-        return self.select(
-            f'SELECT id FROM {frames_servers_table} WHERE frame_id = {frame_id} AND server_id = {server_id}'
-        )
 
     def get_avlb_servers(self):
         return self.select(f'SELECT * FROM {servers_table} WHERE status != "{NOT_AVAILABLE}"')

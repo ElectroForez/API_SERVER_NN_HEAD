@@ -3,7 +3,7 @@ servers_table = 'servers'
 frames_table = 'frames'
 frames_servers_table = 'processing_frames'
 tables = [servers_table, frames_table, frames_servers_table]
-# CONST
+# CONST status
 # for servers
 BUSY = 'is_busy'
 VACANT = 'vacant'

@@ -1,5 +1,5 @@
 import time
-from config_head import DB_PATH, VIDEO_PATH, PASSWORD
+from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH
 import sqlite3
 import os
 from DbManager import DbManager
@@ -8,12 +8,11 @@ import requests
 import traceback
 import threading
 
+
 class ServerHead:
-    def __init__(self, video_path, db_path):
-        # self.video_path = video_path
-        # if not os.path.exists(self.video_path):
-        #     os.mkdir(self.video_path)
-        self.DbManager = DbManager(db_path)
+    def __init__(self, db_path, servers_path, password):
+        self.password = password
+        self.DbManager = DbManager(db_path, servers_path, password)
 
     def save_self(self, method):
         def wrapper(*args, **kwargs):
@@ -21,8 +20,7 @@ class ServerHead:
 
         return wrapper
 
-    @staticmethod
-    def upload_frame(server_url, frame_path, **params):
+    def upload_frame(self, server_url, frame_path, **params):
         frames_path = frame_path.split('/')[-2]
         filename = frame_path.split('/')[-1]
         extension = filename.split('.')[-1]
@@ -33,10 +31,8 @@ class ServerHead:
                 filename, open(frame_path, 'rb'),
                 'image/' + extension))
         ]
-        headers = {
-            'X-PASSWORD': PASSWORD
-        }
 
+        headers = {'X-PASSWORD': self.password}
         try:
             response = requests.request("POST", url, headers=headers, files=files, params=params)
         except requests.ConnectionError:
@@ -49,6 +45,8 @@ class ServerHead:
 
     def start_work(self, videofile, upd_videofile='untitled.avi', *args_realsr):
         try:
+            self.DbManager.check_stuck()
+            return
             self.DbManager.prepare_db()
             if len(self.DbManager.get_avlb_servers()) == 0:
                 print('All servers are not available')
@@ -68,6 +66,7 @@ class ServerHead:
 
     def remote_processing(self, frames_path, upd_frames_path, *args_realsr):
         self.DbManager.add_frames(frames_path)
+        output_frames_path = upd_frames_path.split('/')[-2] + '/'
         while True:
             frame_path = self.DbManager.get_waiting_frame()
             if frame_path is None:
@@ -89,13 +88,13 @@ class ServerHead:
             }
             thread_upload = threading.Thread(target=self.upload_frame, args=(server_url, frame_path), kwargs=params)
             thread_upload.start()
-            self.DbManager.add_proc_server(server_url, frame_path, output_name)
+            self.DbManager.add_proc_server(server_url, frame_path, output_frames_path + output_name)
             print(f'Send {frame_path} to {server_url}')
         return 0
 
 
 if __name__ == '__main__':
-    server_head = ServerHead(VIDEO_PATH, DB_PATH)
-    video_dir = VIDEO_PATH + 'barabans/'
+    server_head = ServerHead(DB_PATH, SERVERS_PATH, API_PASSWORD)
+    video_dir = 'videos/' + 'barabans/'
     args_realsr = ''
     server_head.start_work(video_dir + 'upbar.mp4', video_dir, *args_realsr.split())
