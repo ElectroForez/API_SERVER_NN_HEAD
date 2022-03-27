@@ -1,5 +1,5 @@
 import time
-from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH
+from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH, MAX_PARALLEL_UPLOAD, MAX_PARALLEL_DOWNLOAD
 import sqlite3
 import os
 from DbManager import DbManager
@@ -11,8 +11,10 @@ import threading
 
 class ServerHead:
     def __init__(self, db_path, servers_path, password):
-        self.password = password
+        self.pass_header = {'X-PASSWORD': password}
         self.DbManager = DbManager(db_path, servers_path, password)
+        self.semaphoreDown = threading.BoundedSemaphore(MAX_PARALLEL_DOWNLOAD)
+        self.semaphoreUp = threading.BoundedSemaphore(MAX_PARALLEL_UPLOAD)
 
     def save_self(self, method):
         def wrapper(*args, **kwargs):
@@ -21,6 +23,7 @@ class ServerHead:
         return wrapper
 
     def upload_frame(self, server_url, frame_path, **params):
+        self.semaphoreUp.acquire()
         frames_path = frame_path.split('/')[-2]
         filename = frame_path.split('/')[-1]
         extension = filename.split('.')[-1]
@@ -32,21 +35,34 @@ class ServerHead:
                 'image/' + extension))
         ]
 
-        headers = {'X-PASSWORD': self.password}
+        headers = self.pass_header
         try:
             response = requests.request("POST", url, headers=headers, files=files, params=params)
         except requests.ConnectionError:
             return -1
+        finally:
+            self.semaphoreUp.release()
         print(response.text)
         if response.status_code == 202:
             return response.json()['output_filename']
         else:
             return response.json(), response.status_code
 
+    def download_frame(self, server_url, output_path, **params):
+        self.semaphoreDown.acquire()
+        headers = self.pass_header
+        try:
+            response = requests.get(server_url, params=params, headers=headers)
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+        except requests.ConnectionError:
+            return -1
+        finally:
+            self.semaphoreDown.release()
+
     def start_work(self, videofile, upd_videofile='untitled.avi', *args_realsr):
         try:
             self.DbManager.check_stuck()
-            return
             self.DbManager.prepare_db()
             if len(self.DbManager.get_avlb_servers()) == 0:
                 print('All servers are not available')

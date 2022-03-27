@@ -1,4 +1,4 @@
-from config_head import  MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
+from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
 from DB_NAMES import *
 import sqlite3
 import os
@@ -13,7 +13,7 @@ class DbManager:
         self.check_db()
         self.sqlite_connection = sqlite3.connect(self.db_path)
         self.cursor = self.sqlite_connection.cursor()
-        self.pass_param = {'X-PASSWORD': password}
+        self.pass_header = {'X-PASSWORD': password}
         self.servers_path = servers_path
 
     def check_db(self):
@@ -55,7 +55,7 @@ class DbManager:
     def get_status_serv(self, address):
         url = address + r'/check/busy'
         try:
-            response = requests.get(url, headers=self.pass_param)
+            response = requests.get(url, headers=self.pass_header)
             if response.status_code == 200:
                 is_busy = response.json()['status']
                 if is_busy:
@@ -135,7 +135,7 @@ class DbManager:
         for proc_id, frame_path, address in self.select(query):
             address += '/info/order'
             try:
-                response = requests.get(address, headers=self.pass_param)
+                response = requests.get(address, headers=self.pass_header)
                 if response.status_code == 200:
                     order = response.json()['Files list']
                     for file in order:
