@@ -1,3 +1,5 @@
+import time
+
 from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
 from DB_NAMES import *
 import sqlite3
@@ -5,6 +7,48 @@ import os
 import glob
 import requests
 from datetime import datetime
+
+
+def uploading_control(upload_func):
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        self.smpho_upload.acquire()
+        self_man = self.db_manager
+        proc_id = args[1]
+        try:
+            new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
+            new_manager.update_status(TableName.PROCESSING, ProcStatus.UPLOADING, proc_id)
+            if upload_func(*args, **kwargs) == -1:
+                new_manager.update_status(TableName.PROCESSING, ProcStatus.FAILED, proc_id)
+            else:
+                new_manager.update_status(TableName.PROCESSING, ProcStatus.LAUNCHED, proc_id)
+        except sqlite3.Error as e:
+            print('with upload sqlite3 error', e)
+        finally:
+            new_manager.close_connection()
+            self.smpho_upload.release()
+    return wrapper
+
+
+def downloading_control(download_func):
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        self.smpho_dload.acquire()
+        self_man = self.db_manager
+        proc_id = args[1]
+        try:
+            new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
+            new_manager.update_status(TableName.PROCESSING, ProcStatus.UPLOADING, proc_id)
+            if download_func(*args, **kwargs) == -1:
+                new_manager.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
+            else:
+                new_manager.update_status(TableName.PROCESSING, ProcStatus.FINISHED, proc_id)
+        except sqlite3.Error as e:
+            print('with download sqlite3 error', e)
+        finally:
+            new_manager.close_connection()
+            self.smpho_dload.release()
+    return wrapper
 
 
 class DbManager:
@@ -17,7 +61,6 @@ class DbManager:
         self.servers_path = servers_path
 
     def check_db(self):
-        print('Start checking DB')
         db_exists = os.path.exists(self.db_path)
         sqlite_connection = sqlite3.connect(self.db_path)
         cursor = sqlite_connection.cursor()
@@ -30,7 +73,6 @@ class DbManager:
             cursor.execute(f'SELECT * FROM {table} LIMIT 1')
         cursor.close()
         sqlite_connection.close()
-        print('End checking DB')
         return 0
 
     def clear_db(self):
@@ -86,17 +128,13 @@ class DbManager:
         return self.cursor.execute(f'SELECT * FROM {TableName.SERVERS}')
 
     def update_status(self, table, status, cond_id):  # manual update
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
         fields_id = {TableName.SERVERS: "server_id", TableName.FRAMES: "frame_id", TableName.PROCESSING: "proc_id"}
         field_id = fields_id[table]
-        cursor.execute(f'UPDATE {table} '
-                       f'SET status="{status}", '
-                       f'upd_status_time="{datetime.now()}" '
-                       f'WHERE {field_id} = {cond_id}')
-        connection.commit()
-        cursor.close()
-        connection.close()
+        self.cursor.execute(f'UPDATE {table} '
+                            f'SET status="{status}", '
+                            f'upd_status_time="{datetime.now()}" '
+                            f'WHERE {field_id} = {cond_id}')
+        self.sqlite_connection.commit()
 
     def update_status_serv(self, address):  # automatic update
         self.cursor.execute(f'UPDATE {TableName.SERVERS} '
@@ -115,9 +153,9 @@ class DbManager:
 
     def check_stuck(self):
         time_constraints = {
-            ProcessingStatus.UPLOADING: MAX_UPLOAD_TIME,
-            ProcessingStatus.LAUNCHED: MAX_PROCESSING_TIME,
-            ProcessingStatus.DOWNLOADING: MAX_DOWNLOAD_TIME
+            ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
+            ProcStatus.LAUNCHED: MAX_PROCESSING_TIME,
+            ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME
         }
         query = ""
         for status, time_constraint in time_constraints.items():
@@ -130,13 +168,13 @@ class DbManager:
         for proc_id, frame_id, server_id in stuck_proc:
             self.update_status(TableName.SERVERS, ServerStatus.NOT_AVAILABLE, server_id)
             self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
-            self.update_status(TableName.PROCESSING, ProcessingStatus.LOST, proc_id)
+            self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
     def check_uploads(self):
         query = f"""SELECT pf.proc_id, f.orig_frame_path, s.address FROM {TableName.PROCESSING} pf
         JOIN {TableName.FRAMES} f ON f.frame_id = pf.frame_id
         JOIN {TableName.SERVERS} s ON s.server_id = pf.server_id
-        WHERE pf.status="{ProcessingStatus.UPLOADING}";
+        WHERE pf.status="{ProcStatus.UPLOADING}";
         """
         for proc_id, frame_path, address in self.select(query):
             address += '/info/order'
@@ -146,7 +184,7 @@ class DbManager:
                     order = response.json()['Files list']
                     for file in order:
                         if frame_path.endswith(file):
-                            self.update_status(TableName.PROCESSING, ProcessingStatus.LAUNCHED, proc_id)
+                            self.update_status(TableName.PROCESSING, ProcStatus.LAUNCHED, proc_id)
                             break
             except requests.ConnectionError:
                 self.update_status_serv(address)
@@ -154,7 +192,7 @@ class DbManager:
     def check_updated(self):
         query = f'''SELECT pf.output_filename, s.address FROM {TableName.PROCESSING} pf
         JOIN servers s ON s.server_id = pf.server_id
-        WHERE pf.status = '{ProcessingStatus.LAUNCHED}';
+        WHERE pf.status = '{ProcStatus.LAUNCHED}';
         '''
         launched_frames = self.select(query)
         for output_filename, address in launched_frames:
@@ -169,14 +207,15 @@ class DbManager:
     def add_proc_server(self, server_url, frame_path, output_filename):
         server_id = self.get_id_server(server_url)
         frame_id = self.get_id_frame(frame_path)
-        self.update_status(TableName.SERVERS, ServerStatus.BUSY, server_id)
+        self.update_status(TableName.SERVERS, ServerStatus.VACANT, server_id)
         self.update_status(TableName.FRAMES, FrameStatus.PROCESSING, frame_id)
         self.cursor.execute(
             f'INSERT INTO {TableName.PROCESSING} '
             f'(frame_id, server_id, output_filename, status) VALUES'
-            f'("{frame_id}", "{server_id}", "{output_filename}", "{ProcessingStatus.UPLOADING}")'
+            f'("{frame_id}", "{server_id}", "{output_filename}", "{ProcStatus.IN_ORDER}")'
         )
         self.sqlite_connection.commit()
+        return self.get_id_proc(frame_path, server_url)
 
     def get_id_server(self, server_url):
         return self.select(f'SELECT server_id FROM {TableName.SERVERS} WHERE address = "{server_url}"', 1)
@@ -196,11 +235,15 @@ class DbManager:
             server_id = server
         else:
             server_id = self.get_id_server(server)
-        query = f'SELECT id FROM {TableName.PROCESSING} '\
+        if None in (server_id, frame_id):
+            raise sqlite3.DataError("Uncorrect ids")
+
+        query = f'SELECT proc_id FROM {TableName.PROCESSING} ' \
                 f'WHERE frame_id = {frame_id} AND server_id = {server_id}'
         if actual:
-            ACTUAL_STATUS = [ProcessingStatus.UPLOADING, ProcessingStatus.LAUNCHED, ProcessingStatus.DOWNLOADING]
-            return self.select(query + f"AND status NOT IN {', '.join(ACTUAL_STATUS)}", 1)
+            ACTUAL_STATUS = [ProcStatus.UPLOADING, ProcStatus.LAUNCHED, ProcStatus.DOWNLOADING, ProcStatus.IN_ORDER]
+            ACTUAL_STATUS = [f'"{status}"' for status in ACTUAL_STATUS]
+            return self.select(query + f" AND status IN ({', '.join(ACTUAL_STATUS)})", 1)
         else:
             return self.select(query)
 
@@ -210,10 +253,10 @@ class DbManager:
             result = self.cursor.fetchall()
         elif fetch_size == 1:
             result = self.cursor.fetchone()
-        else:
-            result = self.cursor.fetchmany(fetch_size)
             if result is not None:
                 result = result[0]
+        else:
+            result = self.cursor.fetchmany(fetch_size)
         return result
 
     def close_connection(self):

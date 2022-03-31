@@ -22,7 +22,7 @@ class FrameStatus:
     BAD_FRAME = 'bad frame'
 
 
-class ProcessingStatus:
+class ProcStatus:
     """possible processing statuses"""
     LAUNCHED = 'launched'
     FINISHED = 'finished'
@@ -30,3 +30,4 @@ class ProcessingStatus:
     FAILED = 'failed'
     UPLOADING = 'uploading'
     DOWNLOADING = 'downloading'
+    IN_ORDER = 'in order'
