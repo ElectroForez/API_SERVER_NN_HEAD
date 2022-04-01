@@ -1,5 +1,3 @@
-import time
-
 from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
 from DB_NAMES import *
 import sqlite3
@@ -7,48 +5,6 @@ import os
 import glob
 import requests
 from datetime import datetime
-
-
-def uploading_control(upload_func):
-    def wrapper(*args, **kwargs):
-        self = args[0]
-        self.smpho_upload.acquire()
-        self_man = self.db_manager
-        proc_id = args[1]
-        try:
-            new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
-            new_manager.update_status(TableName.PROCESSING, ProcStatus.UPLOADING, proc_id)
-            if upload_func(*args, **kwargs) == -1:
-                new_manager.update_status(TableName.PROCESSING, ProcStatus.FAILED, proc_id)
-            else:
-                new_manager.update_status(TableName.PROCESSING, ProcStatus.LAUNCHED, proc_id)
-        except sqlite3.Error as e:
-            print('with upload sqlite3 error', e)
-        finally:
-            new_manager.close_connection()
-            self.smpho_upload.release()
-    return wrapper
-
-
-def downloading_control(download_func):
-    def wrapper(*args, **kwargs):
-        self = args[0]
-        self.smpho_dload.acquire()
-        self_man = self.db_manager
-        proc_id = args[1]
-        try:
-            new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
-            new_manager.update_status(TableName.PROCESSING, ProcStatus.UPLOADING, proc_id)
-            if download_func(*args, **kwargs) == -1:
-                new_manager.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
-            else:
-                new_manager.update_status(TableName.PROCESSING, ProcStatus.FINISHED, proc_id)
-        except sqlite3.Error as e:
-            print('with download sqlite3 error', e)
-        finally:
-            new_manager.close_connection()
-            self.smpho_dload.release()
-    return wrapper
 
 
 class DbManager:
@@ -110,11 +66,33 @@ class DbManager:
 
     def add_frames(self, frames_path):
         frames = glob.glob(frames_path + '*.*')
-        frames = [el for el in frames if el.endswith(('.jpg', '.png', '.webp'))]
+        frames = list(filter(lambda el: el.endswith(('.jpg', '.png', '.webp')), frames))
+        # frames = [el for el in frames if el.endswith(('.jpg', '.png', '.webp'))]
+
         for frame in frames:
             self.cursor.execute(
-                f'INSERT INTO {TableName.FRAMES}(orig_frame_path, status) VALUES ("{frame}", "{FrameStatus.WAITING}")')
+                f'INSERT INTO {TableName.FRAMES} (orig_frame_path, status) VALUES ("{frame}", "{FrameStatus.WAITING}")')
         self.sqlite_connection.commit()
+
+    def add_upd_frames(self, upd_frames_path):
+        frames = self.select(f"select frame_id, orig_frame_path from {TableName.FRAMES}")
+        upd_frames = glob.glob(upd_frames_path + '*.*')
+        upd_frames = list(filter(lambda el: el.endswith(('.jpg', '.png', '.webp')), upd_frames))
+        for frame_id, orig_frame_path in frames:
+            upd_path = self.get_update_name(orig_frame_path, upd_frames_path)
+            if upd_path in upd_frames:
+                self.cursor.execute(f'UPDATE {TableName.FRAMES} SET '
+                                    f'upd_frame_path = "{upd_path}",'
+                                    f'status = "{FrameStatus.UPDATED}"'
+                                    f'WHERE frame_id = {frame_id}')
+        self.sqlite_connection.commit()
+
+    @staticmethod
+    def get_update_name(frame_path, upd_frame_path=None):
+        if upd_frame_path:
+            return "/".join(upd_frame_path.split('/')[:-1]) + "/" + frame_path.split('/')[-1].replace("jpg", "png")
+        else:
+            return frame_path.split('/')[-1].replace("jpg", "png")
 
     def get_vacant_server(self):
         return self.select(f'SELECT address FROM {TableName.SERVERS}'
@@ -130,6 +108,7 @@ class DbManager:
     def update_status(self, table, status, cond_id):  # manual update
         fields_id = {TableName.SERVERS: "server_id", TableName.FRAMES: "frame_id", TableName.PROCESSING: "proc_id"}
         field_id = fields_id[table]
+
         self.cursor.execute(f'UPDATE {table} '
                             f'SET status="{status}", '
                             f'upd_status_time="{datetime.now()}" '
@@ -263,3 +242,36 @@ class DbManager:
         self.cursor.close()
         self.sqlite_connection.commit()
         self.sqlite_connection.close()
+
+
+def loading_control(load_func):
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        if load_func.__name__.startswith('upload'):
+            status_before = ProcStatus.UPLOADING
+            suc_status_aftr = ProcStatus.LAUNCHED
+            bad_status_aftr = ProcStatus.FAILED
+            smpho = self.smpho_upload
+        elif load_func.__name__.startswith('download'):
+            status_before = ProcStatus.DOWNLOADING
+            suc_status_aftr = ProcStatus.FINISHED
+            bad_status_aftr = ProcStatus.LOST
+            smpho = self.smpho_dload
+        else:
+            raise Exception("Not a update/upload function")
+        smpho.acquire()
+        self_man = self.db_manager
+        proc_id = args[1]
+        new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
+        try:
+            new_manager.update_status(TableName.PROCESSING, status_before, proc_id)
+            if load_func(*args, **kwargs) != -1:
+                new_manager.update_status(TableName.PROCESSING, suc_status_aftr, proc_id)
+            else:
+                new_manager.update_status(TableName.PROCESSING, bad_status_aftr, proc_id)
+        except sqlite3.Error as e:
+            print('with load function sqlite3 error', e)
+        finally:
+            new_manager.close_connection()
+            self.smpho_upload.release()
+    return wrapper

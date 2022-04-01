@@ -1,9 +1,7 @@
 import time
 from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH, MAX_PARALLEL_UPLOAD, MAX_PARALLEL_DOWNLOAD
-from DB_NAMES import ProcStatus, TableName
 import sqlite3
-import os
-from DbManager import DbManager, uploading_control, downloading_control
+from DbManager import DbManager, loading_control
 from Video_nn import *
 import requests
 import traceback
@@ -17,12 +15,7 @@ class ServerHead:
         self.smpho_dload = threading.BoundedSemaphore(MAX_PARALLEL_DOWNLOAD)
         self.smpho_upload = threading.BoundedSemaphore(MAX_PARALLEL_UPLOAD)
 
-    def save_self(self, method):
-        def wrapper(*args, **kwargs):
-            return method(*args, **kwargs)
-        return wrapper
-
-    @uploading_control
+    @loading_control
     def upload_frame(self, proc_id, server_url, frame_path, **params):
         frames_path = frame_path.split('/')[-2]
         filename = frame_path.split('/')[-1]
@@ -46,6 +39,7 @@ class ServerHead:
         else:
             return response.json(), response.status_code
 
+    @loading_control
     def download_frame(self, proc_id, server_url, output_path, **params):
         headers = self.pass_header
         try:
@@ -63,20 +57,21 @@ class ServerHead:
                 print('All servers are not available')
                 return -1
             return_code = improve_video(videofile, upd_videofile, *args_realsr,
-                                        func_upscale=self.save_self(self.remote_processing))
+                                        func_upscale=self.remote_processing)
             if return_code != 0:
                 print('Error. End of work')
                 return -1
         except sqlite3.Error as error:
-            print("Ошибка при работе с sqlite:", error)
+            print("Error while working with sqlite:", error)
             print(traceback.format_exc())
         finally:
             if self.db_manager.sqlite_connection:
                 self.db_manager.close_connection()
-                print("Соединение с SQLite закрыто")
+                print("SQLite connection closed")
 
     def remote_processing(self, frames_path, upd_frames_path, *args_realsr):
         self.db_manager.add_frames(frames_path)
+        self.db_manager.add_upd_frames(upd_frames_path)
         output_frames_path = upd_frames_path.split('/')[-2] + '/'
         while True:
             frame_path = self.db_manager.get_waiting_frame()
@@ -91,7 +86,7 @@ class ServerHead:
                 server_url = self.db_manager.get_vacant_server()
                 if server_url is not None:
                     break
-            output_name = frame_path.split('/')[-1].replace("jpg", "png")
+            output_name = self.db_manager.get_update_name(frame_path)
             params = {
                 'realsr': ' '.join(args_realsr),
                 'output_name': output_name
