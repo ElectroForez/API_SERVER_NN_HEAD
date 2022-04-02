@@ -69,6 +69,16 @@ class ServerHead:
                 self.db_manager.close_connection()
                 print("SQLite connection closed")
 
+    def download_updates(self, output_path):
+        updated = self.db_manager.check_updated()
+        for proc_id, frame_url in updated:
+            frame_name = frame_url[frame_url.rfind('/') + 1:]
+            thread_dload = threading.Thread(target=self.download_frame,
+                                            args=(proc_id, frame_url),
+                                            kwargs=({'output_path': output_path + frame_name})
+                                            )
+            thread_dload.start()
+
     def remote_processing(self, frames_path, upd_frames_path, *args_realsr):
         self.db_manager.add_frames(frames_path)
         self.db_manager.add_upd_frames(upd_frames_path)
@@ -80,6 +90,7 @@ class ServerHead:
             while True:
                 time.sleep(1)
                 self.db_manager.watch_servers()
+                self.download_updates(upd_frames_path)
                 if len(self.db_manager.get_avlb_servers()) == 0:
                     print('All servers are down')
                     return -1

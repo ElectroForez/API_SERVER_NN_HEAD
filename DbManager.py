@@ -53,7 +53,7 @@ class DbManager:
     def get_status_serv(self, address):
         url = address + r'/check/busy'
         db_status = self.select(f'SELECT status FROM {TableName.SERVERS} '
-                               f'WHERE address = "{self.get_id_server(address)}"')
+                                f'WHERE address = "{self.get_id_server(address)}"')
         try:
             response = requests.get(url, headers=self.pass_header)
             if response.status_code == 200:
@@ -120,8 +120,8 @@ class DbManager:
 
     def update_status_serv(self, address):  # automatic update
         self.cursor.execute(f'UPDATE {TableName.SERVERS} '
-                            f'SET status={self.get_status_serv(address)}, '
-                            f'upd_status_time="{datetime.now()}" '
+                            f'SET status="{self.get_status_serv(address)}", '
+                            f'upd_status_time="{datetime.now()} " '
                             f'WHERE server_id = {self.get_id_server(address)}')
         self.sqlite_connection.commit()
 
@@ -137,7 +137,7 @@ class DbManager:
         time_constraints = {
             ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
             ProcStatus.LAUNCHED: MAX_PROCESSING_TIME,
-            ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME
+            ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME,
         }
         query = ""
         for status, time_constraint in time_constraints.items():
@@ -152,39 +152,28 @@ class DbManager:
             self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
             self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
-    def check_uploads(self):
-        query = f"""SELECT pf.proc_id, f.orig_frame_path, s.address FROM {TableName.PROCESSING} pf
-        JOIN {TableName.FRAMES} f ON f.frame_id = pf.frame_id
-        JOIN {TableName.SERVERS} s ON s.server_id = pf.server_id
-        WHERE pf.status="{ProcStatus.UPLOADING}";
-        """
-        for proc_id, frame_path, address in self.select(query):
-            address += '/info/order'
-            try:
-                response = requests.get(address, headers=self.pass_header)
-                if response.status_code == 200:
-                    order = response.json()['Files list']
-                    for file in order:
-                        if frame_path.endswith(file):
-                            self.update_status(TableName.PROCESSING, ProcStatus.LAUNCHED, proc_id)
-                            break
-            except requests.ConnectionError:
-                self.update_status_serv(address)
+    def check_exists(self, address, path):
+        url = address + '/check/content/' + path
+        try:
+            response = requests.get(url, headers=self.pass_header)
+            if response.json()['File exists']:
+                return True
+            else:
+                return False
+        except requests.ConnectionError:
+            self.update_status_serv(address)
 
     def check_updated(self):
-        query = f'''SELECT pf.output_filename, s.address FROM {TableName.PROCESSING} pf
+        query = f'''SELECT pf.proc_id, pf.output_filename, s.address FROM {TableName.PROCESSING} pf
         JOIN servers s ON s.server_id = pf.server_id
         WHERE pf.status = '{ProcStatus.LAUNCHED}';
         '''
         launched_frames = self.select(query)
-        for output_filename, address in launched_frames:
-            url = address + '/content/' + output_filename
-            try:
-                response = requests.get(url, params=self.pass_header)
-                if response.status_code != 404:
-                    pass
-            except requests.ConnectionError:
-                self.update_status_serv(address)
+        updated_files = []
+        for proc_id, output_filename, address in launched_frames:
+            if self.check_exists(address, output_filename):
+                updated_files.append([proc_id, address + '/' + output_filename])
+        return updated_files
 
     def add_proc(self, server_url, frame_path, output_filename):
         server_id = self.get_id_server(server_url)
@@ -243,8 +232,11 @@ class DbManager:
         return result
 
     def after_download(self, proc_id, output_path):
-        frame_id = self.select(f"SELECT frame_id WHERE proc_id = {proc_id}", 1)
-        self.update_status(TableName.FRAMES, FrameStatus.UPDATED, output_path)
+        frame_id = self.select(f"SELECT frame_id FROM {TableName.PROCESSING} WHERE proc_id = {proc_id}", 1)
+        self.cursor.execute(f'UPDATE {TableName.FRAMES} SET '
+                            f'status = "{FrameStatus.UPDATED}",'
+                            f'upd_frame_path = "{output_path}" '
+                            f'WHERE frame_id = {frame_id}')
 
     def close_connection(self):
         self.cursor.close()
@@ -285,5 +277,5 @@ def loading_control(load_func):
             print('with load function sqlite3 error', e)
         finally:
             new_manager.close_connection()
-            self.smpho_upload.release()
+            smpho.release()
     return wrapper
