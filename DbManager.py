@@ -52,6 +52,8 @@ class DbManager:
 
     def get_status_serv(self, address):
         url = address + r'/check/busy'
+        db_status = self.select(f'SELECT status FROM {TableName.SERVERS} '
+                               f'WHERE address = "{self.get_id_server(address)}"')
         try:
             response = requests.get(url, headers=self.pass_header)
             if response.status_code == 200:
@@ -59,7 +61,10 @@ class DbManager:
                 if is_busy:
                     return ServerStatus.BUSY
                 else:
-                    return ServerStatus.VACANT
+                    if db_status == ServerStatus.RESERVED:
+                        return ServerStatus.RESERVED
+                    else:
+                        return ServerStatus.VACANT
         except requests.ConnectionError as error:
             print('get_status_serv error:', error)
             return ServerStatus.NOT_AVAILABLE
@@ -67,8 +72,6 @@ class DbManager:
     def add_frames(self, frames_path):
         frames = glob.glob(frames_path + '*.*')
         frames = list(filter(lambda el: el.endswith(('.jpg', '.png', '.webp')), frames))
-        # frames = [el for el in frames if el.endswith(('.jpg', '.png', '.webp'))]
-
         for frame in frames:
             self.cursor.execute(
                 f'INSERT INTO {TableName.FRAMES} (orig_frame_path, status) VALUES ("{frame}", "{FrameStatus.WAITING}")')
@@ -183,15 +186,15 @@ class DbManager:
             except requests.ConnectionError:
                 self.update_status_serv(address)
 
-    def add_proc_server(self, server_url, frame_path, output_filename):
+    def add_proc(self, server_url, frame_path, output_filename):
         server_id = self.get_id_server(server_url)
         frame_id = self.get_id_frame(frame_path)
-        self.update_status(TableName.SERVERS, ServerStatus.VACANT, server_id)
+        self.update_status(TableName.SERVERS, ServerStatus.RESERVED, server_id)
         self.update_status(TableName.FRAMES, FrameStatus.PROCESSING, frame_id)
         self.cursor.execute(
             f'INSERT INTO {TableName.PROCESSING} '
             f'(frame_id, server_id, output_filename, status) VALUES'
-            f'("{frame_id}", "{server_id}", "{output_filename}", "{ProcStatus.IN_ORDER}")'
+            f'("{frame_id}", "{server_id}", "{output_filename}", "{ProcStatus.IN_ORDER_UP}")'
         )
         self.sqlite_connection.commit()
         return self.get_id_proc(frame_path, server_url)
@@ -220,7 +223,8 @@ class DbManager:
         query = f'SELECT proc_id FROM {TableName.PROCESSING} ' \
                 f'WHERE frame_id = {frame_id} AND server_id = {server_id}'
         if actual:
-            ACTUAL_STATUS = [ProcStatus.UPLOADING, ProcStatus.LAUNCHED, ProcStatus.DOWNLOADING, ProcStatus.IN_ORDER]
+            ACTUAL_STATUS = [ProcStatus.UPLOADING, ProcStatus.LAUNCHED, ProcStatus.DOWNLOADING,
+                             ProcStatus.IN_ORDER_UP, ProcStatus.IN_ORDER_DN]
             ACTUAL_STATUS = [f'"{status}"' for status in ACTUAL_STATUS]
             return self.select(query + f" AND status IN ({', '.join(ACTUAL_STATUS)})", 1)
         else:
@@ -238,6 +242,10 @@ class DbManager:
             result = self.cursor.fetchmany(fetch_size)
         return result
 
+    def after_download(self, proc_id, output_path):
+        frame_id = self.select(f"SELECT frame_id WHERE proc_id = {proc_id}", 1)
+        self.update_status(TableName.FRAMES, FrameStatus.UPDATED, output_path)
+
     def close_connection(self):
         self.cursor.close()
         self.sqlite_connection.commit()
@@ -247,18 +255,19 @@ class DbManager:
 def loading_control(load_func):
     def wrapper(*args, **kwargs):
         self = args[0]
-        if load_func.__name__.startswith('upload'):
+        func_name = load_func.__name__
+        if func_name.startswith('upload'):
             status_before = ProcStatus.UPLOADING
             suc_status_aftr = ProcStatus.LAUNCHED
             bad_status_aftr = ProcStatus.FAILED
             smpho = self.smpho_upload
-        elif load_func.__name__.startswith('download'):
+        elif func_name.startswith('download'):
             status_before = ProcStatus.DOWNLOADING
             suc_status_aftr = ProcStatus.FINISHED
             bad_status_aftr = ProcStatus.LOST
             smpho = self.smpho_dload
         else:
-            raise Exception("Not a update/upload function")
+            raise Exception("Not a download/upload function")
         smpho.acquire()
         self_man = self.db_manager
         proc_id = args[1]
@@ -269,6 +278,9 @@ def loading_control(load_func):
                 new_manager.update_status(TableName.PROCESSING, suc_status_aftr, proc_id)
             else:
                 new_manager.update_status(TableName.PROCESSING, bad_status_aftr, proc_id)
+            if func_name.startswith('download'):
+                new_manager.after_download(proc_id, kwargs['output_path'])
+
         except sqlite3.Error as e:
             print('with load function sqlite3 error', e)
         finally:

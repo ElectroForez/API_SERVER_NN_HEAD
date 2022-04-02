@@ -37,7 +37,7 @@ class ServerHead:
         if response.status_code == 202:
             return response.json()['output_filename']
         else:
-            return response.json(), response.status_code
+            return -1
 
     @loading_control
     def download_frame(self, proc_id, server_url, output_path, **params):
@@ -91,7 +91,7 @@ class ServerHead:
                 'realsr': ' '.join(args_realsr),
                 'output_name': output_name
             }
-            proc_id = self.db_manager.add_proc_server(server_url, frame_path, output_frames_path + output_name)
+            proc_id = self.db_manager.add_proc(server_url, frame_path, output_frames_path + output_name)
             thread_upload = threading.Thread(target=self.upload_frame,
                                              args=(proc_id, server_url, frame_path),
                                              kwargs=params)

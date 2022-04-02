@@ -1,14 +1,13 @@
-# tables
 class TableName:
     SERVERS = 'servers'
     FRAMES = 'frames'
     PROCESSING = 'processing_frames'
-    ALL_TABLES = [SERVERS, FRAMES, PROCESSING]
+    ALL_TABLES = [SERVERS, FRAMES, PROCESSING]  # list of names
 
 
 class ServerStatus:
     """possible server statuses"""
-
+    RESERVED = 'reserved'
     BUSY = 'is_busy'
     VACANT = 'vacant'
     NOT_AVAILABLE = 'not available'
@@ -30,4 +29,5 @@ class ProcStatus:
     FAILED = 'failed'
     UPLOADING = 'uploading'
     DOWNLOADING = 'downloading'
-    IN_ORDER = 'in order'
+    IN_ORDER_DN = 'in dn order'
+    IN_ORDER_UP = 'in up order'
