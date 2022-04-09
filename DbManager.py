@@ -52,8 +52,11 @@ class DbManager:
 
     def get_status_serv(self, address):
         url = address + r'/check/busy'
-        db_status = self.select(f'SELECT status FROM {TableName.SERVERS} '
-                                f'WHERE address = "{self.get_id_server(address)}"')
+        db_status = None
+        server_id = self.get_id_server(address)
+        if server_id:
+            db_status = self.select(f'SELECT status FROM {TableName.SERVERS} '
+                                    f'WHERE server_id = {server_id}', 1)
         try:
             response = requests.get(url, headers=self.pass_header)
             if response.status_code == 200:
@@ -61,7 +64,7 @@ class DbManager:
                 if is_busy:
                     return ServerStatus.BUSY
                 else:
-                    if db_status == ServerStatus.RESERVED:
+                    if db_status and db_status == ServerStatus.RESERVED:
                         return ServerStatus.RESERVED
                     else:
                         return ServerStatus.VACANT
@@ -106,7 +109,7 @@ class DbManager:
                            f' WHERE status="{FrameStatus.WAITING}" LIMIT 1', 1)
 
     def get_servers(self):
-        return self.cursor.execute(f'SELECT * FROM {TableName.SERVERS}')
+        return self.select(f'SELECT * FROM {TableName.SERVERS}')
 
     def update_status(self, table, status, cond_id):  # manual update
         fields_id = {TableName.SERVERS: "server_id", TableName.FRAMES: "frame_id", TableName.PROCESSING: "proc_id"}
@@ -135,7 +138,7 @@ class DbManager:
 
     def check_stuck(self):
         time_constraints = {
-            ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
+        ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
             ProcStatus.LAUNCHED: MAX_PROCESSING_TIME,
             ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME,
         }
@@ -232,11 +235,24 @@ class DbManager:
         return result
 
     def after_download(self, proc_id, output_path):
-        frame_id = self.select(f"SELECT frame_id FROM {TableName.PROCESSING} WHERE proc_id = {proc_id}", 1)
+        frame_id, server_id = self.select(f"SELECT frame_id, server_id FROM {TableName.PROCESSING} "
+                                          f"WHERE proc_id = {proc_id}")[0]
         self.cursor.execute(f'UPDATE {TableName.FRAMES} SET '
                             f'status = "{FrameStatus.UPDATED}",'
                             f'upd_frame_path = "{output_path}" '
                             f'WHERE frame_id = {frame_id}')
+
+        self.cursor.execute(f'UPDATE {TableName.SERVERS} SET '
+                            f'status = "{ServerStatus.VACANT}" '
+                            f'WHERE server_id = {server_id}')
+
+    def is_all_processed(self):
+        not_processed = self.select(f"SELECT frame_id FROM {TableName.FRAMES} "
+                                    f"WHERE status != '{FrameStatus.UPDATED}'")
+        if len(not_processed):
+            return False
+        else:
+            return True
 
     def close_connection(self):
         self.cursor.close()
@@ -272,10 +288,10 @@ def loading_control(load_func):
                 new_manager.update_status(TableName.PROCESSING, bad_status_aftr, proc_id)
             if func_name.startswith('download'):
                 new_manager.after_download(proc_id, kwargs['output_path'])
-
         except sqlite3.Error as e:
             print('with load function sqlite3 error', e)
         finally:
             new_manager.close_connection()
             smpho.release()
     return wrapper
+

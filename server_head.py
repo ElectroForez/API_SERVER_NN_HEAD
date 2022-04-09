@@ -6,7 +6,8 @@ from Video_nn import *
 import requests
 import traceback
 import threading
-
+import shutil
+from io import open as iopen
 
 class ServerHead:
     def __init__(self, db_path, servers_path, password):
@@ -44,8 +45,11 @@ class ServerHead:
         headers = self.pass_header
         try:
             response = requests.get(server_url, params=params, headers=headers)
-            with open(output_path, 'wb') as f:
-                f.write(response.content)
+            # with open(output_path, 'wb') as out_file:
+            #     shutil.copyfileobj(response.raw, out_file)
+            with iopen(output_path, 'wb') as file:
+                file.write(response.content)
+                print(f"Download {output_path} from {server_url}")
         except requests.ConnectionError:
             return -1
 
@@ -68,14 +72,15 @@ class ServerHead:
             if self.db_manager.sqlite_connection:
                 self.db_manager.close_connection()
                 print("SQLite connection closed")
+        print('Successful complete')
 
-    def download_updates(self, output_path):
+    def download_updates(self, output_frames_path):
         updated = self.db_manager.check_updated()
         for proc_id, frame_url in updated:
             frame_name = frame_url[frame_url.rfind('/') + 1:]
             thread_dload = threading.Thread(target=self.download_frame,
                                             args=(proc_id, frame_url),
-                                            kwargs=({'output_path': output_path + frame_name})
+                                            kwargs=({'output_path': output_frames_path + frame_name})
                                             )
             thread_dload.start()
 
@@ -98,16 +103,30 @@ class ServerHead:
                 if server_url is not None:
                     break
             output_name = self.db_manager.get_update_name(frame_path)
+            output_path = output_frames_path + output_name
             params = {
                 'realsr': ' '.join(args_realsr),
                 'output_name': output_name
             }
-            proc_id = self.db_manager.add_proc(server_url, frame_path, output_frames_path + output_name)
-            thread_upload = threading.Thread(target=self.upload_frame,
-                                             args=(proc_id, server_url, frame_path),
-                                             kwargs=params)
-            thread_upload.start()
 
+            proc_id = self.db_manager.add_proc(server_url, frame_path, output_path)
+            if self.db_manager.check_exists(server_url, output_path):
+                frame_url = server_url + '/content/' + output_path
+                dload_path = upd_frames_path + output_name
+                thread_dload = threading.Thread(target=self.download_frame,
+                                                args=(proc_id, frame_url),
+                                                kwargs=({'output_path': dload_path})
+                                                )
+                thread_dload.start()
+            else:
+                thread_upload = threading.Thread(target=self.upload_frame,
+                                                 args=(proc_id, server_url, frame_path),
+                                                 kwargs=params
+                                                 )
+                thread_upload.start()
+
+        while not self.db_manager.is_all_processed():
+            self.download_updates(upd_frames_path)
         return 0
 
 

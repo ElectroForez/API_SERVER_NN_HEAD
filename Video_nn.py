@@ -37,6 +37,7 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
     for path in [fragments_path, upd_fragments_path]:
         if not os.path.exists(path):
             os.mkdir(path)
+
     if video_to_fragments(videofile, fragments_path) != 0:
         print('Error on function video to fragments')
         return -1
@@ -52,7 +53,7 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
         print('Error on glue frames')
         return -1
 
-    if add_audio(upd_videofile_WOA, fragments_path + 'audio.mp3', directory + upd_videofile) != 0:
+    if add_audio(upd_videofile_WOA, fragments_path + 'audio.mp3', upd_videofile) != 0:
         print('Error on adding audio')
         return -1
     return 0
@@ -131,7 +132,6 @@ def glue_frames(src_path, videofile='untitled.avi', codec='h264', fps=30, *args_
     if len(frames) == 0:
         print(f'Frames with extension {photo_extenstion} not found')
         return
-    # frameSize = cv2.imread(frames[0]).shape[1::-1]
     filename = 'untitled.avi'
 
     if os.path.exists(src_path + '/info.txt'):
@@ -142,7 +142,7 @@ def glue_frames(src_path, videofile='untitled.avi', codec='h264', fps=30, *args_
                 count_frames = int(infoFile.readline())
                 if count_frames != len(frames):
                     print('The number of files in info.txt does not match the actual')
-            except:
+            except ValueError:
                 print("Bad info.txt")
     else:
         print("WARNING!!! info.txt not exists. It's true path?")
