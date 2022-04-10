@@ -68,8 +68,7 @@ class DbManager:
                         return ServerStatus.RESERVED
                     else:
                         return ServerStatus.VACANT
-        except requests.ConnectionError as error:
-            print('get_status_serv error:', error)
+        except requests.ConnectionError:
             return ServerStatus.NOT_AVAILABLE
 
     def add_frames(self, frames_path):
@@ -155,7 +154,18 @@ class DbManager:
             self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
             self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
-    def check_exists(self, address, path):
+    def check_exists(self, address, path, new_updated=False):
+        # url = address + '/info/'
+        # url += 'new_updated' if new_updated else 'all_updated'
+        # try:
+        #     response = requests.get(url, headers=self.pass_header)
+        #     files = response.json()['Files list']
+        #     if path in files:
+        #         return True
+        #     else:
+        #         return False
+        # except requests.ConnectionError:
+        #     self.update_status_serv(address)
         url = address + '/check/content/' + path
         try:
             response = requests.get(url, headers=self.pass_header)
@@ -166,7 +176,7 @@ class DbManager:
         except requests.ConnectionError:
             self.update_status_serv(address)
 
-    def check_updated(self):
+    def get_updated(self):
         query = f'''SELECT pf.proc_id, pf.output_filename, s.address FROM {TableName.PROCESSING} pf
         JOIN servers s ON s.server_id = pf.server_id
         WHERE pf.status = '{ProcStatus.LAUNCHED}';
@@ -174,8 +184,8 @@ class DbManager:
         launched_frames = self.select(query)
         updated_files = []
         for proc_id, output_filename, address in launched_frames:
-            if self.check_exists(address, output_filename):
-                updated_files.append([proc_id, address + '/' + output_filename])
+            if self.check_exists(address, output_filename, new_updated=True):
+                updated_files.append([proc_id, address + '/content/' + output_filename])
         return updated_files
 
     def add_proc(self, server_url, frame_path, output_filename):
@@ -190,6 +200,9 @@ class DbManager:
         )
         self.sqlite_connection.commit()
         return self.get_id_proc(frame_path, server_url)
+
+    def get_ids_server_frame(self, proc_id):
+        return self.select(f"SELECT server_id, frame_id FROM {TableName.PROCESSING} WHERE proc_id = {proc_id}")[0]
 
     def get_id_server(self, server_url):
         return self.select(f'SELECT server_id FROM {TableName.SERVERS} WHERE address = "{server_url}"', 1)
@@ -265,11 +278,13 @@ def loading_control(load_func):
         self = args[0]
         func_name = load_func.__name__
         if func_name.startswith('upload'):
+            load = 'upload'
             status_before = ProcStatus.UPLOADING
             suc_status_aftr = ProcStatus.LAUNCHED
             bad_status_aftr = ProcStatus.FAILED
             smpho = self.smpho_upload
         elif func_name.startswith('download'):
+            load = 'download'
             status_before = ProcStatus.DOWNLOADING
             suc_status_aftr = ProcStatus.FINISHED
             bad_status_aftr = ProcStatus.LOST
@@ -280,13 +295,16 @@ def loading_control(load_func):
         self_man = self.db_manager
         proc_id = args[1]
         new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])
+        server_id, frame_id = new_manager.get_ids_server_frame(proc_id)
         try:
             new_manager.update_status(TableName.PROCESSING, status_before, proc_id)
             if load_func(*args, **kwargs) != -1:
                 new_manager.update_status(TableName.PROCESSING, suc_status_aftr, proc_id)
             else:
                 new_manager.update_status(TableName.PROCESSING, bad_status_aftr, proc_id)
-            if func_name.startswith('download'):
+                if load == 'upload':
+                    new_manager.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
+            if load == 'download':
                 new_manager.after_download(proc_id, kwargs['output_path'])
         except sqlite3.Error as e:
             print('with load function sqlite3 error', e)

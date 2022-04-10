@@ -9,6 +9,7 @@ import threading
 import shutil
 from io import open as iopen
 
+
 class ServerHead:
     def __init__(self, db_path, servers_path, password):
         self.pass_header = {'X-PASSWORD': password}
@@ -33,7 +34,7 @@ class ServerHead:
             response = requests.request("POST", url, headers=headers, files=files, params=params)
         except requests.ConnectionError:
             return -1
-        print(f'Send {frame_path} to {server_url}')
+        print(f'Send {frame_path} to {server_url} {datetime.now()}')
         print(response.text)
         if response.status_code == 202:
             return response.json()['output_filename']
@@ -47,9 +48,12 @@ class ServerHead:
             response = requests.get(server_url, params=params, headers=headers)
             # with open(output_path, 'wb') as out_file:
             #     shutil.copyfileobj(response.raw, out_file)
+            print(
+                f"Download {output_path} from {server_url} {datetime.now()}. Size = {response.headers['content-length']}")
+            if response.status_code == 404:
+                return -1
             with iopen(output_path, 'wb') as file:
                 file.write(response.content)
-                print(f"Download {output_path} from {server_url}")
         except requests.ConnectionError:
             return -1
 
@@ -75,7 +79,7 @@ class ServerHead:
         print('Successful complete')
 
     def download_updates(self, output_frames_path):
-        updated = self.db_manager.check_updated()
+        updated = self.db_manager.get_updated()
         for proc_id, frame_url in updated:
             frame_name = frame_url[frame_url.rfind('/') + 1:]
             thread_dload = threading.Thread(target=self.download_frame,
@@ -111,6 +115,7 @@ class ServerHead:
 
             proc_id = self.db_manager.add_proc(server_url, frame_path, output_path)
             if self.db_manager.check_exists(server_url, output_path):
+                print(f'{output_path} is already on the {server_url}')
                 frame_url = server_url + '/content/' + output_path
                 dload_path = upd_frames_path + output_name
                 thread_dload = threading.Thread(target=self.download_frame,
@@ -126,6 +131,7 @@ class ServerHead:
                 thread_upload.start()
 
         while not self.db_manager.is_all_processed():
+            self.db_manager.watch_servers()
             self.download_updates(upd_frames_path)
         return 0
 
