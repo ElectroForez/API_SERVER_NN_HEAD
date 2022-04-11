@@ -1,3 +1,5 @@
+import time
+
 from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
 from DB_NAMES import *
 import sqlite3
@@ -17,6 +19,7 @@ class DbManager:
         self.servers_path = servers_path
 
     def check_db(self):
+        """checks table in db and create db if db bot exists"""
         db_exists = os.path.exists(self.db_path)
         sqlite_connection = sqlite3.connect(self.db_path)
         cursor = sqlite_connection.cursor()
@@ -37,28 +40,30 @@ class DbManager:
             self.cursor.execute(f'UPDATE SQLITE_SEQUENCE SET seq = 0 WHERE name = "{table}"')
         self.sqlite_connection.commit()
 
-    def prepare_db(self):
-        self.clear_db()
+    def add_servers(self):
+        """add servers to db"""
         with open(self.servers_path, 'r') as file:
             servers = [server.strip() for server in file.readlines()]
         for server in servers:
             self.add_server(server)
 
     def add_server(self, address):
+        """add server to db"""
         server_status = self.get_status_serv(address)
         if server_status == ServerStatus.NOT_AVAILABLE:
             print(address, 'not available')
         self.cursor.execute(f'INSERT INTO {TableName.SERVERS}(address, status) VALUES ("{address}", "{server_status}")')
 
     def get_status_serv(self, address):
-        url = address + r'/check/busy'
+        """returns actual status of the server"""
+        check_url = address + r'/check/busy'
         db_status = None
         server_id = self.get_id_server(address)
         if server_id:
             db_status = self.select(f'SELECT status FROM {TableName.SERVERS} '
                                     f'WHERE server_id = {server_id}', 1)
         try:
-            response = requests.get(url, headers=self.pass_header)
+            response = requests.get(check_url, headers=self.pass_header)
             if response.status_code == 200:
                 is_busy = response.json()['status']
                 if is_busy:
@@ -72,14 +77,17 @@ class DbManager:
             return ServerStatus.NOT_AVAILABLE
 
     def add_frames(self, frames_path):
+        """add frames to db"""
         frames = glob.glob(frames_path + '*.*')
         frames = list(filter(lambda el: el.endswith(('.jpg', '.png', '.webp')), frames))
         for frame in frames:
             self.cursor.execute(
                 f'INSERT INTO {TableName.FRAMES} (orig_frame_path, status) VALUES ("{frame}", "{FrameStatus.WAITING}")')
         self.sqlite_connection.commit()
+        print(f'Add to db {len(frames)} frames')
 
     def add_upd_frames(self, upd_frames_path):
+        """add updated frames to db"""
         frames = self.select(f"select frame_id, orig_frame_path from {TableName.FRAMES}")
         upd_frames = glob.glob(upd_frames_path + '*.*')
         upd_frames = list(filter(lambda el: el.endswith(('.jpg', '.png', '.webp')), upd_frames))
@@ -90,6 +98,7 @@ class DbManager:
                                     f'upd_frame_path = "{upd_path}",'
                                     f'status = "{FrameStatus.UPDATED}"'
                                     f'WHERE frame_id = {frame_id}')
+                print(f'Already upd {orig_frame_path} on {upd_path}')
         self.sqlite_connection.commit()
 
     @staticmethod
@@ -110,7 +119,8 @@ class DbManager:
     def get_servers(self):
         return self.select(f'SELECT * FROM {TableName.SERVERS}')
 
-    def update_status(self, table, status, cond_id):  # manual update
+    def update_status(self, table, status, cond_id):
+        """manual update status by id"""
         fields_id = {TableName.SERVERS: "server_id", TableName.FRAMES: "frame_id", TableName.PROCESSING: "proc_id"}
         field_id = fields_id[table]
 
@@ -120,7 +130,8 @@ class DbManager:
                             f'WHERE {field_id} = {cond_id}')
         self.sqlite_connection.commit()
 
-    def update_status_serv(self, address):  # automatic update
+    def update_status_serv(self, address):
+        """transmits the actual status of the server to the db"""
         self.cursor.execute(f'UPDATE {TableName.SERVERS} '
                             f'SET status="{self.get_status_serv(address)}", '
                             f'upd_status_time="{datetime.now()} " '
@@ -128,6 +139,7 @@ class DbManager:
         self.sqlite_connection.commit()
 
     def watch_servers(self):
+        """transmits the actual status of the all servers to the db"""
         servers = self.get_servers()
         for server_id, server_url, old_status, _ in servers:
             cur_status = self.get_status_serv(server_url)
@@ -136,8 +148,9 @@ class DbManager:
         self.sqlite_connection.commit()
 
     def check_stuck(self):
+        """checks stuck and restarts processing"""
         time_constraints = {
-        ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
+            ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
             ProcStatus.LAUNCHED: MAX_PROCESSING_TIME,
             ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME,
         }
@@ -154,19 +167,9 @@ class DbManager:
             self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
             self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
-    def check_exists(self, address, path, new_updated=False):
-        # url = address + '/info/'
-        # url += 'new_updated' if new_updated else 'all_updated'
-        # try:
-        #     response = requests.get(url, headers=self.pass_header)
-        #     files = response.json()['Files list']
-        #     if path in files:
-        #         return True
-        #     else:
-        #         return False
-        # except requests.ConnectionError:
-        #     self.update_status_serv(address)
-        url = address + '/check/content/' + path
+    def check_exists(self, address, frame_path):
+        """checks the existence of this frame"""
+        url = address + '/check/content/' + frame_path
         try:
             response = requests.get(url, headers=self.pass_header)
             if response.json()['File exists']:
@@ -177,6 +180,7 @@ class DbManager:
             self.update_status_serv(address)
 
     def get_updated(self):
+        """return list of proc_id and urls updated files"""
         query = f'''SELECT pf.proc_id, pf.output_filename, s.address FROM {TableName.PROCESSING} pf
         JOIN servers s ON s.server_id = pf.server_id
         WHERE pf.status = '{ProcStatus.LAUNCHED}';
@@ -184,11 +188,12 @@ class DbManager:
         launched_frames = self.select(query)
         updated_files = []
         for proc_id, output_filename, address in launched_frames:
-            if self.check_exists(address, output_filename, new_updated=True):
+            if self.check_exists(address, output_filename):
                 updated_files.append([proc_id, address + '/content/' + output_filename])
         return updated_files
 
     def add_proc(self, server_url, frame_path, output_filename):
+        """add new processing"""
         server_id = self.get_id_server(server_url)
         frame_id = self.get_id_frame(frame_path)
         self.update_status(TableName.SERVERS, ServerStatus.RESERVED, server_id)
@@ -202,6 +207,7 @@ class DbManager:
         return self.get_id_proc(frame_path, server_url)
 
     def get_ids_server_frame(self, proc_id):
+        """return server_id, frame_id from processing by proc_id"""
         return self.select(f"SELECT server_id, frame_id FROM {TableName.PROCESSING} WHERE proc_id = {proc_id}")[0]
 
     def get_id_server(self, server_url):
@@ -211,9 +217,14 @@ class DbManager:
         return self.select(f'SELECT frame_id FROM {TableName.FRAMES} WHERE orig_frame_path = "{frame_path}"', 1)
 
     def get_avlb_servers(self):
+        """return available servers"""
         return self.select(f'SELECT * FROM {TableName.SERVERS} WHERE status != "{ServerStatus.NOT_AVAILABLE}"')
 
     def get_id_proc(self, frame, server, actual=True):
+        """
+        get proc id by frame and server
+        if actual give proc_id which is being processed now
+        """
         if type(frame) == int:
             frame_id = frame
         else:
@@ -236,6 +247,7 @@ class DbManager:
             return self.select(query)
 
     def select(self, query, fetch_size=-1):
+        """return result of select query"""
         self.cursor.execute(query)
         if fetch_size == -1:
             result = self.cursor.fetchall()
@@ -248,8 +260,8 @@ class DbManager:
         return result
 
     def after_download(self, proc_id, output_path):
-        frame_id, server_id = self.select(f"SELECT frame_id, server_id FROM {TableName.PROCESSING} "
-                                          f"WHERE proc_id = {proc_id}")[0]
+        """for loading control"""
+        frame_id, server_id = self.get_ids_server_frame(proc_id)
         self.cursor.execute(f'UPDATE {TableName.FRAMES} SET '
                             f'status = "{FrameStatus.UPDATED}",'
                             f'upd_frame_path = "{output_path}" '
@@ -274,6 +286,7 @@ class DbManager:
 
 
 def loading_control(load_func):
+    """decorator for loading. in db transmits the current load statuses"""
     def wrapper(*args, **kwargs):
         self = args[0]
         func_name = load_func.__name__
@@ -311,5 +324,5 @@ def loading_control(load_func):
         finally:
             new_manager.close_connection()
             smpho.release()
-    return wrapper
 
+    return wrapper

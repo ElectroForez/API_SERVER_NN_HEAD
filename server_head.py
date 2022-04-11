@@ -1,24 +1,23 @@
-import time
 from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH, MAX_PARALLEL_UPLOAD, MAX_PARALLEL_DOWNLOAD
 import sqlite3
 from DbManager import DbManager, loading_control
-from Video_nn import *
+from Video_nn import improve_video
 import requests
 import traceback
 import threading
-import shutil
-from io import open as iopen
+from datetime import datetime
 
 
 class ServerHead:
     def __init__(self, db_path, servers_path, password):
         self.pass_header = {'X-PASSWORD': password}
         self.db_manager = DbManager(db_path, servers_path, password)
-        self.smpho_dload = threading.BoundedSemaphore(MAX_PARALLEL_DOWNLOAD)
-        self.smpho_upload = threading.BoundedSemaphore(MAX_PARALLEL_UPLOAD)
+        self.smpho_dload = threading.BoundedSemaphore(MAX_PARALLEL_DOWNLOAD)  # semaphore for download
+        self.smpho_upload = threading.BoundedSemaphore(MAX_PARALLEL_UPLOAD)  # semaphore for upload
 
     @loading_control
     def upload_frame(self, proc_id, server_url, frame_path, **params):
+        """Uploading frame to server_url"""
         frames_path = frame_path.split('/')[-2]
         filename = frame_path.split('/')[-1]
         extension = filename.split('.')[-1]
@@ -43,24 +42,25 @@ class ServerHead:
 
     @loading_control
     def download_frame(self, proc_id, server_url, output_path, **params):
+        """Downloading frame from server_url"""
         headers = self.pass_header
         try:
             response = requests.get(server_url, params=params, headers=headers)
-            # with open(output_path, 'wb') as out_file:
-            #     shutil.copyfileobj(response.raw, out_file)
-            print(
-                f"Download {output_path} from {server_url} {datetime.now()}. Size = {response.headers['content-length']}")
+            print(f"Download {output_path} from {server_url} {datetime.now()}. "
+                  f"Size = {response.headers['content-length']}")
             if response.status_code == 404:
                 return -1
-            with iopen(output_path, 'wb') as file:
+            with open(output_path, 'wb') as file:
                 file.write(response.content)
         except requests.ConnectionError:
             return -1
 
     def start_work(self, videofile, upd_videofile='untitled.avi', *args_realsr):
+        """enter function """
         try:
             self.db_manager.check_stuck()
-            self.db_manager.prepare_db()
+            self.db_manager.clear_db()
+            self.db_manager.add_servers()
             if len(self.db_manager.get_avlb_servers()) == 0:
                 print('All servers are not available')
                 return -1
@@ -79,6 +79,7 @@ class ServerHead:
         print('Successful complete')
 
     def download_updates(self, output_frames_path):
+        """Checks and download updated frames"""
         updated = self.db_manager.get_updated()
         for proc_id, frame_url in updated:
             frame_name = frame_url[frame_url.rfind('/') + 1:]
@@ -89,6 +90,10 @@ class ServerHead:
             thread_dload.start()
 
     def remote_processing(self, frames_path, upd_frames_path, *args_realsr):
+        """
+        Manages and distributes frames from frames_path to servers that process them.
+        Save results in upd_frames_path
+        """
         self.db_manager.add_frames(frames_path)
         self.db_manager.add_upd_frames(upd_frames_path)
         output_frames_path = upd_frames_path.split('/')[-2] + '/'
@@ -97,7 +102,6 @@ class ServerHead:
             if frame_path is None:
                 break
             while True:
-                time.sleep(1)
                 self.db_manager.watch_servers()
                 self.download_updates(upd_frames_path)
                 if len(self.db_manager.get_avlb_servers()) == 0:
@@ -138,6 +142,6 @@ class ServerHead:
 
 if __name__ == '__main__':
     server_head = ServerHead(DB_PATH, SERVERS_PATH, API_PASSWORD)
-    video_dir = 'videos/' + 'barabans/'
-    args_realsr = ''
-    server_head.start_work(video_dir + 'upbar.mp4', video_dir, *args_realsr.split())
+    video_dir = 'videos/' + 'New_year/'
+    args_realsr = '-s 4'
+    server_head.start_work(video_dir + 'NewYear.mp4', video_dir, *args_realsr.split())

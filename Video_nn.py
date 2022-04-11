@@ -7,7 +7,22 @@ from datetime import datetime
 from moviepy.editor import AudioFileClip
 
 
-def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_upscale):  # Function to improve the video
+def print_timecost(func):
+    def wrapper(*args, **kwargs):
+        t1 = datetime.now()
+        statuscode = func(*args, **kwargs)
+        t2 = datetime.now()
+        print(f'time cost {func.__name__} =', t2 - t1)
+        return statuscode
+    return wrapper
+
+
+@print_timecost
+def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_upscale):
+    """
+    improve quality of video using frame-by-frame processing.
+    func_upscale processes frames
+    """
     if not os.path.exists(videofile):
         print(f'File {videofile} not found')
         return -1
@@ -42,33 +57,36 @@ def improve_video(videofile, upd_videofile='untitled.avi', *args_realsr, func_up
         print('Error on function video to fragments')
         return -1
 
+    # copy info and audio of video to path with updated fragments
     subprocess.run(['cp', fragments_path + 'info.txt', fragments_path + 'audio.mp3', upd_fragments_path])
 
-    return_code = func_upscale(fragments_path, upd_fragments_path, *args_realsr)
-    if return_code != 0:
+    return_code_upscale = func_upscale(fragments_path, upd_fragments_path, *args_realsr)
+    if return_code_upscale != 0:
         print('Error on upscaling frames')
         return -1
 
-    if glue_frames(upd_fragments_path, upd_videofile_WOA) != 0:
+    return_code_glue = glue_frames(upd_fragments_path, upd_videofile_WOA)
+    if return_code_glue != 0:
         print('Error on glue frames')
         return -1
 
-    if add_audio(upd_videofile_WOA, fragments_path + 'audio.mp3', upd_videofile) != 0:
+    return_code_audio = add_audio(upd_videofile_WOA, fragments_path + 'audio.mp3', upd_videofile)
+    if return_code_audio != 0:
         print('Error on adding audio')
         return -1
     return 0
 
 
+@print_timecost
 def use_realsr(input_path, output_path, *args_realsr, realsr_path='./realsr-ncnn-vulkan/realsr-ncnn-vulkan'):
-    t1 = datetime.now()
+    """up-scaling frames"""
     finish = subprocess.run([realsr_path, '-i', input_path, '-o', output_path, *args_realsr])
-    t2 = datetime.now()
-    print('time cost realsr =', t2 - t1)
-
     return finish.returncode
 
 
+@print_timecost
 def video_to_fragments(video_path, output_path=None):
+    """split video into frames and audio, & write some info in info.txt"""
     # check paths
     if output_path.endswith('/'):
         output_path = output_path[:-1]
@@ -93,7 +111,6 @@ def video_to_fragments(video_path, output_path=None):
     if os.listdir(output_path):
         print(f'WARNING!!! Path for fragments {output_path} is not empty. Files with the same name will be overwritten')
 
-    t1 = datetime.now()
     videoCapture = cv2.VideoCapture()
     videoCapture.open(video_path)
     fps = videoCapture.get(cv2.CAP_PROP_FPS)
@@ -106,22 +123,21 @@ def video_to_fragments(video_path, output_path=None):
         if ret:
             count_frames += 1
             cv2.imwrite("%s/%d.png" % (output_path, i), frame)
-    t2 = datetime.now()
     if count_frames != frames:
         frames = count_frames
-    print('time cost  = ', t2 - t1)
 
     # create a txt file with additional info for processing by other programs
     with open(output_path + 'info.txt', 'w') as infoFile:
         infoFile.write(str(int(fps)) + '\n')  # fps
         infoFile.write(filename + '\n')  # filename
         infoFile.write(str(int(frames)))  # frames
+
     # catching audio
     try:
         audioclip = AudioFileClip(video_path)
         audioclip.write_audiofile(output_path + 'audio.mp3')
         audioclip.close()
-    except:
+    except IndexError:
         print('video without audio')
 
     return 0
@@ -150,28 +166,21 @@ def glue_frames(src_path, videofile='untitled.avi', codec='h264', fps=30, *args_
     if videofile.split('/')[-1].count('.') == 0:
         videofile += '/' + filename
 
-    t1 = datetime.now()
-
     finish = subprocess.run(
         ['ffmpeg', '-start_number', '1', '-r', str(fps), '-i', src_path + '/%d.png', '-vcodec', codec, '-y',
          *args_ffmpeg, videofile])
 
-    t2 = datetime.now()
-    print('time cost qlue =', t2 - t1)
-
     return finish.returncode
 
 
+@print_timecost
 def add_audio(videofile, audio_path, new_name=None):
     if not new_name:
         new_name = 'UPDATED_' + videofile.split('/')[-1]
     if videofile in (new_name, audio_path):
         print('Files with same name')
         return
-    t1 = datetime.now()
     finish = subprocess.run(['ffmpeg', '-i', audio_path, '-i', videofile, '-codec', 'copy', '-y', new_name])
-    t2 = datetime.now()
-    print('time cost add audio = ', t2 - t1)
     return finish.returncode
 
 
