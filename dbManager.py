@@ -1,5 +1,3 @@
-import time
-
 from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
 from DB_NAMES import *
 import sqlite3

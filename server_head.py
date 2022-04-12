@@ -1,11 +1,14 @@
 from config_head import DB_PATH, API_PASSWORD, SERVERS_PATH, MAX_PARALLEL_UPLOAD, MAX_PARALLEL_DOWNLOAD
 import sqlite3
-from DbManager import DbManager, loading_control
-from Video_nn import improve_video
+from dbManager import DbManager, loading_control
 import requests
 import traceback
 import threading
 from datetime import datetime
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from video_nn.video_nn import improve_video
 
 
 class ServerHead:
@@ -144,4 +147,4 @@ if __name__ == '__main__':
     server_head = ServerHead(DB_PATH, SERVERS_PATH, API_PASSWORD)
     video_dir = 'videos/' + 'New_year/'
     args_realsr = '-s 4'
-    server_head.start_work(video_dir + 'NewYear.mp4', video_dir, *args_realsr.split())
+    server_head.start_work(video_dir + 'NewYear.mp4', video_dir + '/updateNewYear.mp4', *args_realsr.split())
