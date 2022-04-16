@@ -2,3 +2,4 @@ db_head.db
 servers.txt
 temp.py
 videos/
+__pycache__
