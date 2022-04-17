@@ -9,3 +9,4 @@ RUN pip install -r API_server_nn_head/requirments.txt -r video_nn/requirments.tx
 RUN pip install opencv-python-headless
 ENV IS_DOCKER=1
 WORKDIR /usr/src/API_server_nn_head
+ENTRYPOINT ["python3", "server_head.py"]

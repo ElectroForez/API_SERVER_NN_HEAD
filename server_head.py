@@ -147,6 +147,8 @@ class ServerHead:
 if __name__ == '__main__':
     if os.environ.get('IS_DOCKER'):
         mounted_path = '/mounted/'
+        if not os.path.exists(mounted_path):
+            raise IOError(f"{mounted_path} not found")
         servers_path = mounted_path + SERVERS_FILENAME
         video_dir = mounted_path
     else:
@@ -154,7 +156,8 @@ if __name__ == '__main__':
         video_dir = ''
 
     server_head = ServerHead(DB_PATH, servers_path, API_PASSWORD)
-    parser = argparse.ArgumentParser(prog='Server API', description='Head for server nn. Improve video')
+    parser = argparse.ArgumentParser(prog='Server API',
+                                     description='Head for server nn. Improve video on remote servers')
     parser.add_argument('-i', '--input', type=str, help='Input path for video', required=True)
     parser.add_argument('-o', '--output', type=str, default='untitled.avi',
                         help='Output path for video. Temporary files will be stored in the same path.')
