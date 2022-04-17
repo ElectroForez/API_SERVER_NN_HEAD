@@ -54,7 +54,7 @@ class DbManager:
 
     def get_status_serv(self, address):
         """returns actual status of the server"""
-        check_url = address + r'/check/busy'
+        check_url = address + r'/check/busy/'
         db_status = None
         server_id = self.get_id_server(address)
         if server_id:
@@ -71,6 +71,8 @@ class DbManager:
                         return ServerStatus.RESERVED
                     else:
                         return ServerStatus.VACANT
+            elif response.status_code in (308, 404):
+                return ServerStatus.NOT_AVAILABLE
         except requests.ConnectionError:
             return ServerStatus.NOT_AVAILABLE
 
