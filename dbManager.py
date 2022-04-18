@@ -42,19 +42,24 @@ class DbManager:
         """add servers to db"""
         with open(self.servers_path, 'r') as file:
             servers = [server.strip() for server in file.readlines()]
-        for server in servers:
-            self.add_server(server)
+        for server_url in servers:
+            if server_url.endswith('/'):
+                server_url = server_url[:-1]
+            self.add_server(server_url)
 
     def add_server(self, address):
         """add server to db"""
         server_status = self.get_status_serv(address)
         if server_status == ServerStatus.NOT_AVAILABLE:
             print(address, 'not available')
+        elif server_status == ServerStatus.INVALID_URL:
+            print(address, 'invalid url')
+            return
         self.cursor.execute(f'INSERT INTO {TableName.SERVERS}(address, status) VALUES ("{address}", "{server_status}")')
 
     def get_status_serv(self, address):
         """returns actual status of the server"""
-        check_url = address + r'/check/busy/'
+        check_url = address + r'/check/busy'
         db_status = None
         server_id = self.get_id_server(address)
         if server_id:
@@ -75,6 +80,8 @@ class DbManager:
                 return ServerStatus.NOT_AVAILABLE
         except requests.ConnectionError:
             return ServerStatus.NOT_AVAILABLE
+        except requests.exceptions.MissingSchema:
+            return ServerStatus.INVALID_URL
 
     def add_frames(self, frames_path):
         """add frames to db"""
