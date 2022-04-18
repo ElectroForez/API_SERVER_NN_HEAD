@@ -1,6 +1,6 @@
 from os import environ
 DB_PATH = 'db_head.db'
-API_PASSWORD = environ['PASS_API_NN_HEAD']
+API_PASSWORD = environ['PASS_HEAD']
 SERVERS_FILENAME = 'servers.txt'
 # waiting time
 MAX_UPLOAD_TIME = 100000  # secs

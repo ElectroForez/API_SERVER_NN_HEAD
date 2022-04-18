@@ -11,6 +11,7 @@ class ServerStatus:
     BUSY = 'is_busy'
     VACANT = 'vacant'
     NOT_AVAILABLE = 'not available'
+    INVALID_URL = 'invalid url'
 
 
 class FrameStatus:
