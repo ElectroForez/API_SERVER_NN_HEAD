@@ -227,7 +227,7 @@ class DbManager:
         """return available servers"""
         return self.select(f'SELECT * FROM {TableName.SERVERS} WHERE status != "{ServerStatus.NOT_AVAILABLE}"')
 
-    def get_id_proc(self, frame, server, actual=True):
+    def get_id_proc(self, frame, server, last=True):
         """
         get proc id by frame and server
         if actual give proc_id which is being processed now
@@ -245,11 +245,8 @@ class DbManager:
 
         query = f'SELECT proc_id FROM {TableName.PROCESSING} ' \
                 f'WHERE frame_id = {frame_id} AND server_id = {server_id}'
-        if actual:
-            ACTUAL_STATUS = [ProcStatus.UPLOADING, ProcStatus.LAUNCHED, ProcStatus.DOWNLOADING,
-                             ProcStatus.IN_ORDER_UP, ProcStatus.IN_ORDER_DN]
-            ACTUAL_STATUS = [f'"{status}"' for status in ACTUAL_STATUS]
-            return self.select(query + f" AND status IN ({', '.join(ACTUAL_STATUS)})", 1)
+        if last:
+            return self.select(query + " ORDER BY upd_status_time DESC LIMIT 1", 1)
         else:
             return self.select(query)
 
