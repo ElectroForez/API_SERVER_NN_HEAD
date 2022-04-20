@@ -102,9 +102,9 @@ class ServerHead:
         self.db_manager.add_upd_frames(upd_frames_path)
         output_frames_path = upd_frames_path.split('/')[-2] + '/'
         while True:
-            frame_path = self.db_manager.get_waiting_frame()
-            if frame_path is None:
+            if self.db_manager.is_all_processed():
                 break
+            frame_path = self.db_manager.get_waiting_frame()
             while True:
                 self.db_manager.watch_servers()
                 self.download_updates(upd_frames_path)
@@ -112,7 +112,7 @@ class ServerHead:
                     print('All servers are down')
                     return -1
                 server_url = self.db_manager.get_vacant_server()
-                if server_url is not None:
+                if None not in (server_url, frame_path):
                     break
             output_name = self.db_manager.get_update_name(frame_path)
             output_path = output_frames_path + output_name
@@ -137,10 +137,6 @@ class ServerHead:
                                                  kwargs=params
                                                  )
                 thread_upload.start()
-
-        while not self.db_manager.is_all_processed():
-            self.db_manager.watch_servers()
-            self.download_updates(upd_frames_path)
         return 0
 
 
