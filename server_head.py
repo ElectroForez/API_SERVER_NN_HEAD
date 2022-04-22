@@ -104,16 +104,15 @@ class ServerHead:
         while True:
             if self.db_manager.is_all_processed():
                 break
+            self.db_manager.watch_servers()
+            if len(self.db_manager.get_avlb_servers()) == 0:
+                print('All servers are down')
+                return -1
+            self.download_updates(upd_frames_path)
             frame_path = self.db_manager.get_waiting_frame()
-            while True:
-                self.db_manager.watch_servers()
-                self.download_updates(upd_frames_path)
-                if len(self.db_manager.get_avlb_servers()) == 0:
-                    print('All servers are down')
-                    return -1
-                server_url = self.db_manager.get_vacant_server()
-                if None not in (server_url, frame_path):
-                    break
+            server_url = self.db_manager.get_vacant_server()
+            if None in (server_url, frame_path):
+                continue
             output_name = self.db_manager.get_update_name(frame_path)
             output_path = output_frames_path + output_name
             params = {

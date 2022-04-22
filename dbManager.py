@@ -265,7 +265,7 @@ class DbManager:
 
     def after_download(self, proc_id, output_path):
         """for loading control"""
-        frame_id, server_id = self.get_ids_server_frame(proc_id)
+        server_id, frame_id = self.get_ids_server_frame(proc_id)
         self.cursor.execute(f'UPDATE {TableName.FRAMES} SET '
                             f'status = "{FrameStatus.UPDATED}",'
                             f'upd_frame_path = "{output_path}" '
