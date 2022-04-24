@@ -21,8 +21,10 @@ class DbManager:
         db_exists = os.path.exists(self.db_path)
         sqlite_connection = sqlite3.connect(self.db_path)
         cursor = sqlite_connection.cursor()
+        absScriptPath = os.path.abspath(__file__)
+        path, filename = os.path.split(absScriptPath)
         if not db_exists:
-            create_db_file = 'create_db.sql'
+            create_db_file = path + '/create_db.sql'
             with open(create_db_file, 'r') as sqlite_file:
                 sql_script = sqlite_file.read()
             cursor.executescript(sql_script)
@@ -55,6 +57,9 @@ class DbManager:
         elif server_status == ServerStatus.INVALID_URL:
             print(address, 'invalid url')
             return
+        elif server_status == ServerStatus.INVALID_PASS:
+            print(ServerStatus.INVALID_PASS, address)
+            return
         self.cursor.execute(f'INSERT INTO {TableName.SERVERS}(address, status) VALUES ("{address}", "{server_status}")')
 
     def get_status_serv(self, address):
@@ -78,6 +83,8 @@ class DbManager:
                         return ServerStatus.VACANT
             elif response.status_code in (308, 404):
                 return ServerStatus.NOT_AVAILABLE
+            elif response.status_code == 401:
+                return ServerStatus.INVALID_PASS
         except requests.ConnectionError:
             return ServerStatus.NOT_AVAILABLE
         except requests.exceptions.MissingSchema:
@@ -309,6 +316,7 @@ def loading_control(load_func):
         else:
             raise Exception("Not a download/upload function")
         smpho.acquire()
+        print(smpho._value)
         self_man = self.db_manager
         proc_id = args[1]
         new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])

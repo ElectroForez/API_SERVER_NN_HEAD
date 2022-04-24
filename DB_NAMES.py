@@ -12,6 +12,7 @@ class ServerStatus:
     VACANT = 'vacant'
     NOT_AVAILABLE = 'not available'
     INVALID_URL = 'invalid url'
+    INVALID_PASS = 'invalid pass'
 
 
 class FrameStatus:
