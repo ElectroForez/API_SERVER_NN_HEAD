@@ -159,7 +159,6 @@ class DbManager:
             cur_status = self.get_status_serv(server_url)
             if cur_status != old_status:
                 self.update_status(TableName.SERVERS, cur_status, server_id)
-        self.sqlite_connection.commit()
 
     def check_stuck(self):
         """checks stuck and restarts processing"""
@@ -218,7 +217,6 @@ class DbManager:
             f'("{frame_id}", "{server_id}", "{output_filename}", "{ProcStatus.IN_ORDER_UP}")'
         )
         self.sqlite_connection.commit()
-        return self.get_id_proc(frame_path, server_url)
 
     def add_download(self, proc_id):
         self.update_status(TableName.PROCESSING, ProcStatus.IN_ORDER_DN, proc_id)
@@ -282,7 +280,7 @@ class DbManager:
                             f'WHERE frame_id = {frame_id}')
 
         self.cursor.execute(f'UPDATE {TableName.SERVERS} SET '
-                            f'status = "{ServerStatus.VACANT}" '
+                            f'status = "{ServerStatus.RECOVERING}" '
                             f'WHERE server_id = {server_id}')
 
     def is_all_processed(self):
@@ -301,6 +299,7 @@ class DbManager:
 
 def loading_control(load_func):
     """decorator for loading. in db transmits the current load statuses"""
+
     def wrapper(*args, **kwargs):
         self = args[0]
         func_name = load_func.__name__

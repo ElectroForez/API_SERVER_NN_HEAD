@@ -123,7 +123,8 @@ class ServerHead:
                 'output_name': output_name
             }
 
-            proc_id = self.db_manager.add_proc(server_url, frame_path, output_path)
+            self.db_manager.add_proc(server_url, frame_path, output_path)
+            proc_id = self.db_manager.get_id_proc(frame_path, server_url)
             if self.db_manager.check_exists(server_url, output_path):
                 print(f'{output_path} is already on the {server_url}')
                 self.db_manager.add_download(proc_id)
