@@ -220,6 +220,9 @@ class DbManager:
         self.sqlite_connection.commit()
         return self.get_id_proc(frame_path, server_url)
 
+    def add_download(self, proc_id):
+        self.update_status(TableName.PROCESSING, ProcStatus.IN_ORDER_DN, proc_id)
+
     def get_ids_server_frame(self, proc_id):
         """return server_id, frame_id from processing by proc_id"""
         return self.select(f"SELECT server_id, frame_id FROM {TableName.PROCESSING} WHERE proc_id = {proc_id}")[0]
@@ -316,7 +319,6 @@ def loading_control(load_func):
         else:
             raise Exception("Not a download/upload function")
         smpho.acquire()
-        print(smpho._value)
         self_man = self.db_manager
         proc_id = args[1]
         new_manager = DbManager(self_man.db_path, self_man.servers_path, self_man.pass_header['X-PASSWORD'])

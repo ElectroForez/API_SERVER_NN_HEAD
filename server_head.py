@@ -1,3 +1,5 @@
+import time
+
 from config_head import DB_PATH, API_PASSWORD, SERVERS_FILENAME, MAX_PARALLEL_UPLOAD, MAX_PARALLEL_DOWNLOAD
 import sqlite3
 from dbManager import DbManager, loading_control
@@ -87,6 +89,7 @@ class ServerHead:
         updated = self.db_manager.get_updated()
         for proc_id, frame_url in updated:
             frame_name = frame_url[frame_url.rfind('/') + 1:]
+            self.db_manager.add_download(proc_id)
             thread_dload = threading.Thread(target=self.download_frame,
                                             args=(proc_id, frame_url),
                                             kwargs=({'output_path': output_frames_path + frame_name})
@@ -123,6 +126,7 @@ class ServerHead:
             proc_id = self.db_manager.add_proc(server_url, frame_path, output_path)
             if self.db_manager.check_exists(server_url, output_path):
                 print(f'{output_path} is already on the {server_url}')
+                self.db_manager.add_download(proc_id)
                 frame_url = server_url + '/content/' + output_path
                 dload_path = upd_frames_path + output_name
                 thread_dload = threading.Thread(target=self.download_frame,
