@@ -54,7 +54,7 @@ class ServerHead:
             response = requests.get(server_url, params=params, headers=headers)
             print(f"Download {output_path} from {server_url} {datetime.now()}. "
                   f"Size = {response.headers['content-length']}")
-            if response.status_code == 404:
+            if response.status_code != 200:
                 return -1
             with open(output_path, 'wb') as file:
                 file.write(response.content)
