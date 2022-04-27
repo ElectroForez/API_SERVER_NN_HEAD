@@ -157,10 +157,10 @@ if __name__ == '__main__':
         video_dir = ''
 
     server_head = ServerHead(DB_PATH, servers_path, API_PASSWORD)
-    parser = argparse.ArgumentParser(prog='Server API',
+    parser = argparse.ArgumentParser(prog='Server HEAD',
                                      description='Head for server nn. Improve video on remote servers')
     parser.add_argument('-i', '--input', type=str, help='Input path for video', required=True)
-    parser.add_argument('-o', '--output', type=str, default='untitled.avi',
+    parser.add_argument('-o', '--output', type=str, default='untitled.mp4',
                         help='Output path for video. Temporary files will be stored in the same path.')
     parser.add_argument('-r', '--realsr', metavar='REALSR ARGS', default='', type=str)
     args = parser.parse_args()
