@@ -64,7 +64,6 @@ class ServerHead:
     def start_work(self, videofile, upd_videofile='untitled.avi', *args_realsr):
         """enter function """
         try:
-            self.db_manager.check_stuck()
             self.db_manager.clear_db()
             self.db_manager.add_servers()
             if len(self.db_manager.get_avlb_servers()) == 0:
@@ -105,6 +104,7 @@ class ServerHead:
         self.db_manager.add_upd_frames(upd_frames_path)
         output_frames_path = upd_frames_path.split('/')[-2] + '/'
         while True:
+            time.sleep(1)
             if self.db_manager.is_all_processed():
                 break
             self.db_manager.watch_servers()
@@ -112,6 +112,7 @@ class ServerHead:
                 print('All servers are down')
                 return -1
             self.download_updates(upd_frames_path)
+            self.db_manager.check_stuck()
             frame_path = self.db_manager.get_waiting_frame()
             server_url = self.db_manager.get_vacant_server()
             if None in (server_url, frame_path):

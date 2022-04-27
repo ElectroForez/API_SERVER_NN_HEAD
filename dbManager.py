@@ -4,6 +4,7 @@ import sqlite3
 import os
 import glob
 import requests
+from json import JSONDecodeError
 from datetime import datetime
 
 
@@ -122,6 +123,10 @@ class DbManager:
         else:
             return frame_path.split('/')[-1].replace("jpg", "png")
 
+    def get_not_updated_frames(self):
+        return self.select(f'SELECT orig_frame_path FROM {TableName.FRAMES}'
+                           f' WHERE status != "{FrameStatus.UPDATED}"')
+
     def get_vacant_server(self):
         return self.select(f'SELECT address FROM {TableName.SERVERS}'
                            f' WHERE status="{ServerStatus.VACANT}" LIMIT 1', 1)
@@ -191,6 +196,8 @@ class DbManager:
                 return False
         except requests.ConnectionError:
             self.update_status_serv(address)
+        except JSONDecodeError:
+            self.update_status(address)
 
     def get_updated(self):
         """return list of proc_id and urls updated files"""
