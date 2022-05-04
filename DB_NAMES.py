@@ -14,6 +14,7 @@ class ServerStatus:
     INVALID_URL = 'invalid url'
     INVALID_PASS = 'invalid pass'
     RECOVERING = 'recovering'
+    BROKEN = 'broken'
 
 
 class FrameStatus:
@@ -32,5 +33,5 @@ class ProcStatus:
     FAILED = 'failed'
     UPLOADING = 'uploading'
     DOWNLOADING = 'downloading'
-    IN_ORDER_DN = 'in dn order'
-    IN_ORDER_UP = 'in up order'
+    IN_ORDER_DN = 'in dload order'
+    IN_ORDER_UP = 'in upload order'

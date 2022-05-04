@@ -1,4 +1,4 @@
-from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME
+from config_head import MAX_UPLOAD_TIME, MAX_DOWNLOAD_TIME, MAX_PROCESSING_TIME, MAX_NOT_AVAILABLE
 from DB_NAMES import *
 import sqlite3
 import os
@@ -101,6 +101,14 @@ class DbManager:
         self.sqlite_connection.commit()
         print(f'Add to db {len(frames)} frames')
 
+    def is_all_servers_broken(self):
+        unbroken_servers = self.select('SELECT * FROM servers '
+                                       f'WHERE status != "{ServerStatus.BROKEN}"')
+        if len(unbroken_servers):
+            return False
+        else:
+            return True
+
     def add_upd_frames(self, upd_frames_path):
         """add updated frames to db"""
         frames = self.select(f"select frame_id, orig_frame_path from {TableName.FRAMES}")
@@ -153,7 +161,7 @@ class DbManager:
         """transmits the actual status of the server to the db"""
         self.cursor.execute(f'UPDATE {TableName.SERVERS} '
                             f'SET status="{self.get_status_serv(address)}", '
-                            f'upd_status_time="{datetime.now()} " '
+                            f'upd_status_time="{datetime.now()}" '
                             f'WHERE server_id = {self.get_id_server(address)}')
         self.sqlite_connection.commit()
 
@@ -161,29 +169,54 @@ class DbManager:
         """transmits the actual status of the all servers to the db"""
         servers = self.get_servers()
         for server_id, server_url, old_status, _ in servers:
+            if old_status == ServerStatus.BROKEN:
+                continue
             cur_status = self.get_status_serv(server_url)
             if cur_status != old_status:
                 self.update_status(TableName.SERVERS, cur_status, server_id)
 
-    def check_stuck(self):
-        """checks stuck and restarts processing"""
+    def check_stuck_proc(self):
+        """checks stuck proc and restarts processing"""
         time_constraints = {
             ProcStatus.UPLOADING: MAX_UPLOAD_TIME,
             ProcStatus.LAUNCHED: MAX_PROCESSING_TIME,
             ProcStatus.DOWNLOADING: MAX_DOWNLOAD_TIME,
         }
-        query = ""
+        query_find_stuck = ""
         for status, time_constraint in time_constraints.items():
-            query += f'''SELECT proc_id, frame_id, server_id FROM {TableName.PROCESSING} pf
-        WHERE (strftime("%s", 'now') - strftime("%s", pf.upd_status_time)) > {time_constraint} AND status="{status}"
+            query_find_stuck += f'''SELECT proc_id, frame_id, server_id FROM {TableName.PROCESSING} pf
+        WHERE (strftime("%s", 'now', 'localtime') - strftime("%s", pf.upd_status_time)) > {time_constraint} AND status="{status}"
         UNION
         '''
-        query = query[0:query.rfind('UNION')]
-        stuck_proc = self.select(query)
+        query_find_stuck = query_find_stuck[0:query_find_stuck.rfind('UNION')]
+        stuck_proc = self.select(query_find_stuck)
         for proc_id, frame_id, server_id in stuck_proc:
             self.update_status(TableName.SERVERS, ServerStatus.NOT_AVAILABLE, server_id)
             self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
             self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
+
+    def check_stuck_serv(self):
+        """checks stuck servers and restarts processing"""
+        query_find_stuck = f'''SELECT server_id FROM {TableName.SERVERS} s 
+        WHERE (strftime("%s", 'now', 'localtime') - strftime("%s", s.upd_status_time)) > {MAX_NOT_AVAILABLE} 
+        AND 
+        status="{ServerStatus.NOT_AVAILABLE}"
+        '''
+
+        stuck_servers = self.select(query_find_stuck)
+
+        for result_row in stuck_servers:
+            server_id = result_row[0]
+            self.update_status(TableName.SERVERS, ServerStatus.BROKEN, server_id)
+            result = self.select('SELECT proc_id, frame_id FROM processing_frames pf '
+                                 f'WHERE server_id = {server_id} '
+                                 f'AND '
+                                 f'status != "{ProcStatus.FINISHED}" '
+                                 'ORDER BY upd_status_time DESC LIMIT 1', 1)
+            if result is not None:
+                proc_id, processed_frame_id = result
+                self.update_status(TableName.FRAMES, FrameStatus.WAITING, processed_frame_id)
+                self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
     def check_exists(self, address, frame_path):
         """checks the existence of this frame"""

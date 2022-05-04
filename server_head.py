@@ -77,6 +77,7 @@ class ServerHead:
         except sqlite3.Error as error:
             print("Error while working with sqlite:", error)
             print(traceback.format_exc())
+            return -1
         finally:
             if self.db_manager.sqlite_connection:
                 self.db_manager.close_connection()
@@ -108,14 +109,16 @@ class ServerHead:
             if self.db_manager.is_all_processed():
                 break
             self.db_manager.watch_servers()
-            if len(self.db_manager.get_avlb_servers()) == 0:
+            if self.db_manager.is_all_servers_broken():
                 print('All servers are down')
                 return -1
             self.download_updates(upd_frames_path)
-            self.db_manager.check_stuck()
+            self.db_manager.check_stuck_proc()
+            self.db_manager.check_stuck_serv()
             frame_path = self.db_manager.get_waiting_frame()
             server_url = self.db_manager.get_vacant_server()
             if None in (server_url, frame_path):
+                time.sleep(4)
                 continue
             output_name = self.db_manager.get_update_name(frame_path)
             output_path = output_frames_path + output_name
