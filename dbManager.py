@@ -146,6 +146,10 @@ class DbManager:
     def get_servers(self):
         return self.select(f'SELECT * FROM {TableName.SERVERS}')
 
+    def get_unbroken_servers(self):
+        return self.select(f'SELECT * FROM {TableName.SERVERS} '
+                           f'WHERE status != {ServerStatus.BROKEN}')
+
     def update_status(self, table, status, cond_id):
         """manual update status by id"""
         fields_id = {TableName.SERVERS: "server_id", TableName.FRAMES: "frame_id", TableName.PROCESSING: "proc_id"}
@@ -167,10 +171,8 @@ class DbManager:
 
     def watch_servers(self):
         """transmits the actual status of the all servers to the db"""
-        servers = self.get_servers()
+        servers = self.get_unbroken_servers()
         for server_id, server_url, old_status, _ in servers:
-            if old_status == ServerStatus.BROKEN:
-                continue
             cur_status = self.get_status_serv(server_url)
             if cur_status != old_status:
                 self.update_status(TableName.SERVERS, cur_status, server_id)
@@ -212,9 +214,9 @@ class DbManager:
                                  f'WHERE server_id = {server_id} '
                                  f'AND '
                                  f'status != "{ProcStatus.FINISHED}" '
-                                 'ORDER BY upd_status_time DESC LIMIT 1', 1)
-            if result is not None:
-                proc_id, processed_frame_id = result
+                                 'ORDER BY upd_status_time DESC LIMIT 1')
+            if result:
+                proc_id, processed_frame_id = result[0]  # result has a LIMIT 1
                 self.update_status(TableName.FRAMES, FrameStatus.WAITING, processed_frame_id)
                 self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
@@ -228,9 +230,9 @@ class DbManager:
             else:
                 return False
         except requests.ConnectionError:
-            self.update_status_serv(address)
+            pass
         except JSONDecodeError:
-            self.update_status(address)
+            pass
 
     def get_updated(self):
         """return list of proc_id and urls updated files"""
