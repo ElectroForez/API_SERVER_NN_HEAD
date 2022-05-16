@@ -118,7 +118,7 @@ class ServerHead:
             frame_path = self.db_manager.get_waiting_frame()
             server_url = self.db_manager.get_vacant_server()
             if None in (server_url, frame_path):
-                time.sleep(4)
+                time.sleep(2)
                 continue
             output_name = self.db_manager.get_update_name(frame_path)
             output_path = output_frames_path + output_name

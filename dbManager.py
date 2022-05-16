@@ -148,7 +148,7 @@ class DbManager:
 
     def get_unbroken_servers(self):
         return self.select(f'SELECT * FROM {TableName.SERVERS} '
-                           f'WHERE status != {ServerStatus.BROKEN}')
+                           f'WHERE status != "{ServerStatus.BROKEN}"')
 
     def update_status(self, table, status, cond_id):
         """manual update status by id"""
@@ -333,6 +333,16 @@ class DbManager:
         else:
             return True
 
+    def get_progress(self):
+        count_all_frames = self.select(f"SELECT COUNT(*) FROM {TableName.FRAMES}", 1)
+        count_updated_frames = self.select(f'SELECT COUNT(*) FROM {TableName.FRAMES} '
+                                           f'WHERE status = "{FrameStatus.UPDATED}"', 1)
+        return {"all": count_all_frames, "updated": count_updated_frames}
+
+    def print_progress(self):
+        progress = self.get_progress()
+        print(f"Completed {progress['updated']}/{progress['all']}")
+
     def close_connection(self):
         self.cursor.close()
         self.sqlite_connection.commit()
@@ -374,6 +384,7 @@ def loading_control(load_func):
                     new_manager.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
             if load == 'download':
                 new_manager.after_download(proc_id, kwargs['output_path'])
+                new_manager.print_progress()
         except sqlite3.Error as e:
             print('with load function sqlite3 error', e)
         finally:
