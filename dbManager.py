@@ -41,14 +41,49 @@ class DbManager:
             self.cursor.execute(f'UPDATE SQLITE_SEQUENCE SET seq = 0 WHERE name = "{table}"')
         self.sqlite_connection.commit()
 
-    def add_servers(self):
-        """add servers to db"""
+    def update_server_list(self):
+        """synchronize servers file with db"""
         with open(self.servers_path, 'r') as file:
-            servers = [server.strip() for server in file.readlines()]
-        for server_url in servers:
+            file_servers = [server.strip() for server in file.readlines()]
+
+        db_servers = self.select(f'SELECT address FROM {TableName.SERVERS}')
+
+        if db_servers is not None:
+            db_servers = [row[0] for row in db_servers]
+        else:
+            db_servers = []
+
+        file_servers = set(file_servers)
+        db_servers = set(db_servers)
+
+        need_add = file_servers - db_servers
+        need_delete = db_servers - file_servers
+
+        for server_url in need_add:
             if server_url.endswith('/'):
                 server_url = server_url[:-1]
             self.add_server(server_url)
+
+        for server_url in need_delete:
+            self.delete_server(server_url)
+        return
+
+    # def add_servers(self):
+    #     """add servers to db"""
+    #     with open(self.servers_path, 'r') as file:
+    #         file_servers = [server.strip() for server in file.readlines()]
+    #     for server_url in file_servers:
+    #         if server_url.endswith('/'):
+    #             server_url = server_url[:-1]
+    #         self.add_server(server_url)
+
+    def delete_server(self, address):
+        actual_proc_id = self.get_id_proc_by_server(address)
+        if actual_proc_id is not None:
+            self.cancel_proc(actual_proc_id)
+        self.cursor.execute(f'DELETE FROM servers WHERE server_id={self.get_id_server(address)}')
+        self.sqlite_connection.commit()
+
 
     def add_server(self, address):
         """add server to db"""
@@ -215,10 +250,18 @@ class DbManager:
                                  f'AND '
                                  f'status != "{ProcStatus.FINISHED}" '
                                  'ORDER BY upd_status_time DESC LIMIT 1')
+            # proc_id = self.get_id_proc_by_server(server_id)
+            # _, processed_frame_id = self.get_ids_server_frame(proc_id)
             if result:
                 proc_id, processed_frame_id = result[0]  # result has a LIMIT 1
                 self.update_status(TableName.FRAMES, FrameStatus.WAITING, processed_frame_id)
                 self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
+
+    def cancel_proc(self, proc_id):
+        server_id, frame_id = self.get_ids_server_frame(proc_id)
+        self.update_status(TableName.SERVERS, ServerStatus.RECOVERING, server_id)
+        self.update_status(TableName.FRAMES, FrameStatus.WAITING, frame_id)
+        self.update_status(TableName.PROCESSING, ProcStatus.LOST, proc_id)
 
     def check_exists(self, address, frame_path):
         """checks the existence of this frame"""
@@ -299,6 +342,20 @@ class DbManager:
             return self.select(query + " ORDER BY upd_status_time DESC LIMIT 1", 1)
         else:
             return self.select(query)
+
+    def get_id_proc_by_server(self, server):
+        if type(server) == int:
+            server_id = server
+        else:
+            server_id = self.get_id_server(server)
+
+        proc_id = self.select('SELECT proc_id FROM processing_frames pf '
+                             f'WHERE server_id = {server_id} '
+                             f'AND '
+                             f'status != "{ProcStatus.FINISHED}" '
+                             'ORDER BY upd_status_time DESC LIMIT 1', 1)
+        return proc_id
+
 
     def select(self, query, fetch_size=-1):
         """return result of select query"""

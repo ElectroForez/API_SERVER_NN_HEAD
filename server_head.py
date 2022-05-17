@@ -65,10 +65,6 @@ class ServerHead:
         """enter function """
         try:
             self.db_manager.clear_db()
-            self.db_manager.add_servers()
-            if len(self.db_manager.get_avlb_servers()) == 0:
-                print('All servers are not available')
-                return -1
             return_code = improve_video(videofile, upd_videofile, *args_realsr,
                                         func_upscale=self.remote_processing)
             if return_code != 0:
@@ -108,6 +104,7 @@ class ServerHead:
             time.sleep(1)
             if self.db_manager.is_all_processed():
                 break
+            self.db_manager.update_server_list()
             self.db_manager.watch_servers()
             if self.db_manager.is_all_servers_broken():
                 print('All servers are down')
