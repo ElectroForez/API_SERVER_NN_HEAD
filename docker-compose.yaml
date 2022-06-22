@@ -1,0 +1,15 @@
+version: '2'
+services:
+  server-head:
+    build: .
+    hostname: headNN
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      PASS_HEAD: pass
+    volumes:
+      - ./data:/mounted
+    entrypoint:
+      - /bin/bash
+    network_mode: "host"
+    command: /mounted/startup.sh

@@ -22,8 +22,8 @@ class DbManager:
         db_exists = os.path.exists(self.db_path)
         sqlite_connection = sqlite3.connect(self.db_path)
         cursor = sqlite_connection.cursor()
-        absScriptPath = os.path.abspath(__file__)
-        path, filename = os.path.split(absScriptPath)
+        abs_script_path = os.path.abspath(__file__)
+        path, filename = os.path.split(abs_script_path)
         if not db_exists:
             create_db_file = path + '/create_db.sql'
             with open(create_db_file, 'r') as sqlite_file:
@@ -66,16 +66,6 @@ class DbManager:
 
         for server_url in need_delete:
             self.delete_server(server_url)
-        return
-
-    # def add_servers(self):
-    #     """add servers to db"""
-    #     with open(self.servers_path, 'r') as file:
-    #         file_servers = [server.strip() for server in file.readlines()]
-    #     for server_url in file_servers:
-    #         if server_url.endswith('/'):
-    #             server_url = server_url[:-1]
-    #         self.add_server(server_url)
 
     def delete_server(self, address):
         actual_proc_id = self.get_id_proc_by_server(address)
@@ -83,7 +73,6 @@ class DbManager:
             self.cancel_proc(actual_proc_id)
         self.cursor.execute(f'DELETE FROM servers WHERE server_id={self.get_id_server(address)}')
         self.sqlite_connection.commit()
-
 
     def add_server(self, address):
         """add server to db"""
@@ -97,6 +86,7 @@ class DbManager:
             print(ServerStatus.INVALID_PASS, address)
             return
         self.cursor.execute(f'INSERT INTO {TableName.SERVERS}(address, status) VALUES ("{address}", "{server_status}")')
+        self.sqlite_connection.commit()
 
     def get_status_serv(self, address):
         """returns actual status of the server"""
